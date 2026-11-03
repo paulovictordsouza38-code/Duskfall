@@ -1,0 +1,33 @@
+// Teste automatico: node teste.mjs  (sobe o servidor numa porta livre e simula 3 jogadores)
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { server } = require('./server.js');
+await new Promise((r) => server.listen(0, r));
+const port = server.address().port;
+const open = (name) => new Promise((res) => {
+  const ws = new WebSocket('ws://127.0.0.1:' + port);
+  const q = []; let waiter = null;
+  ws.onmessage = (e) => { const m = JSON.parse(e.data); if (waiter) { const w = waiter; waiter = null; w(m); } else q.push(m); };
+  const next = (t) => new Promise((r2) => { const take = () => { const i = q.findIndex((m) => !t || m.t === t); if (i >= 0) return r2(q.splice(i, 1)[0]); waiter = (m) => { if (!t || m.t === t) r2(m); else { q.push(m); waiter = null; take(); } }; }; take(); });
+  ws.onopen = () => res({ ws, next, name, send: (o) => ws.send(JSON.stringify(o)) });
+});
+const a = await open('Ana'); await a.next('hello');
+a.send({ t: 'create', name: 'Ana' });
+const j = await a.next('joined'); assert.equal(j.code.length, 4); assert.equal(j.host, true); console.log('ok criou sala', j.code);
+const b = await open('Beto'); await b.next('hello');
+b.send({ t: 'join', code: j.code.toLowerCase(), name: 'Beto' });
+const jb = await b.next('joined'); assert.equal(jb.players.length, 2); console.log('ok Beto entrou (codigo em minuscula)');
+const pa = await a.next('players'); assert.equal(pa.players.length, 2); console.log('ok Ana viu Beto');
+b.send({ t: 'join', code: 'ZZZZ', name: 'x' }); const er = await b.next('error'); assert.match(er.msg, /nao existe/); console.log('ok codigo errado:', er.msg);
+b.send({ t: 'start' }); const er2 = await b.next('error'); assert.match(er2.msg, /anfitriao/); console.log('ok so o anfitriao inicia');
+a.send({ t: 'ping', ts: 7 }); const pg = await a.next('pong'); assert.equal(pg.ts, 7); console.log('ok ping/pong');
+a.send({ t: 'start' }); const sb = await b.next('start'); assert.equal(sb.players.length, 2); await a.next('start'); console.log('ok partida iniciada');
+const c = await open('Caio'); await c.next('hello'); c.send({ t: 'join', code: j.code, name: 'Caio' });
+assert.match((await c.next('error')).msg, /comecou/); console.log('ok nao entra depois de comecar');
+b.send({ t: 'relay', d: { x: 1, z: 2 } }); const rl = await a.next('relay'); assert.equal(rl.d.x, 1); console.log('ok relay entre jogadores');
+a.ws.close(); const left = await b.next('players'); assert.equal(left.players[0].host, true); console.log('ok anfitriao saiu, Beto virou anfitriao');
+b.ws.close(); c.ws.close();
+await new Promise((r) => setTimeout(r, 100));
+const res = await fetch('http://127.0.0.1:' + port + '/health'); console.log('ok /health:', await res.text());
+console.log('TODOS OS TESTES PASSARAM'); process.exit(0);

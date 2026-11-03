@@ -1,0 +1,8 @@
+{
+  "name": "duskfall",
+  "version": "1.0.0",
+  "description": "DUSKFALL - jogo e servidor online (sem dependencias)",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
+}

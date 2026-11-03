@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { Actor } from './actors.js';
 import { WEAPONS } from './logic/weapons.js';
 import { rayVsPlayer, shotDamage, HP_MAX } from './logic/combat.js';
-import { resolveMovement, rayBoxes } from './logic/collision.js';
+import { resolveMovement, rayBoxes, rayShot } from './logic/collision.js';
 
 const BOT_WEAPONS = ['mp5', 'xm8', 'famas', 'scar', 'mp40', 'g18', 'usp', 'mp5', 'xm8', 'awm'];
 const _m = new THREE.Vector3();
@@ -160,8 +160,12 @@ export class BotManager {
           const hitP = clamp((0.5 - dist * 0.0085) * move, 0.06, 0.46);
           b.muzzleWorld(_m);
           _e.set(P.x, P.y + 1.3, P.z);
-          const hit = this.rand() < hitP;
-          if (!hit) { _e.x += (this.rand() - 0.5) * 2.4; _e.y += (this.rand() - 0.5) * 1.6; _e.z += (this.rand() - 0.5) * 2.4; }
+          let hit = this.rand() < hitP;
+          // a bala do bot tambem nao atravessa paredes, ferro ou gelo
+          { const dx = P.x - _m.x, dy = P.y + 1.3 - _m.y, dz = P.z - _m.z, L = Math.hypot(dx, dy, dz) || 1;
+            const w = rayShot(_m.x, _m.y, _m.z, dx / L, dy / L, dz / L, L, this.o.colliders);
+            if (w && w.t < L - 0.3) { hit = false; _e.set(_m.x + (dx / L) * w.t, _m.y + (dy / L) * w.t, _m.z + (dz / L) * w.t); ai.wall = true; } else ai.wall = false; }
+          if (!hit && !ai.wall) { _e.x += (this.rand() - 0.5) * 2.4; _e.y += (this.rand() - 0.5) * 1.6; _e.z += (this.rand() - 0.5) * 2.4; }
           if (ctx.tracer) ctx.tracer(_m, _e);
           if (ctx.sound) ctx.sound(b.weaponId, dist);
           if (hit) ctx.hitPlayer(Math.round(cfg.dmg * 0.8), b, this.rand() < 0.06 ? 'cabeca' : 'peito');
@@ -194,7 +198,10 @@ export class BotManager {
         if (Math.hypot(b.x - ai.lx, b.z - ai.lz) < 0.5) ai.goal = null;
         ai.lx = b.x; ai.lz = b.z; ai.stuckT = 0;
       }
-      if (!far) b.update(dt, this.t);
+      ai.acc = (ai.acc || 0) + dt; ai.fr = (ai.fr || 0) + 1;
+      const every = dist > 50 ? 4 : 2;               // longe: anima menos vezes (mais fps)
+      if (b.rig) b.rig.group.visible = dist < 42 && b.alive;           // arma some de longe (menos desenho)
+      if (!far && ai.fr % every === 0) { b.update(ai.acc, this.t); ai.acc = 0; }
     }
   }
 }

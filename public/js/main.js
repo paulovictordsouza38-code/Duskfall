@@ -15,21 +15,22 @@ import { HudLayout } from './hudlayout.js';
 import { Net } from './net.js';
 import { BotManager } from './bots.js';
 import { Online } from './online.js';
-import { Explosives } from './explosives.js';
+import { mergeStaticMeshes } from './merge.js';
+import { Explosives, EXPLOSIVE_STATS } from './explosives.js';
 import { Vitals, Backpack, shotDamage, HP_MAX, EP_MAX, USE_TIME, ITEM_CAP, ITEM_NAMES, fallDamage, explosionDamage } from './logic/combat.js';
 import { buildScenery } from './scenery.js';
 import { Loadout, WEAPONS, WEAPON_IDS, zoomFor } from './logic/weapons.js';
 import { Stats } from './logic/scoring.js';
-import { resolveMovement, rayBoxes, groundHeight, makeBox } from './logic/collision.js';
+import { resolveMovement, rayBoxes, rayShot, groundHeight, makeBox } from './logic/collision.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = THREE.MathUtils.clamp;
 const smooth = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 
 const PLAYER_RADIUS = 0.34;
-const WALK = 2.5;
-const RUN = 5.0;
-const AIM_WALK = 1.7;
+const WALK = 3.0;
+const RUN = 6.2;
+const AIM_WALK = 2.1;
 const ADS_BASE_FOV = 52;
 // campo de visao vertical com a mira: 52 graus nas miras de ferro; luneta 2x/4x/8x divide a tangente
 const adsFov = (zoom) => (2 * Math.atan(Math.tan((ADS_BASE_FOV * Math.PI) / 360) / zoom) * 180) / Math.PI;
@@ -37,9 +38,9 @@ const TP_FOV = 66;
 
 // ------------------------------------------------------------------ qualidade
 const QUALITY = {
-  baixa: { pixel: 1, shadows: 0, shadowSize: 512, tex: 256 },
-  media: { pixel: 1, shadows: 1, shadowSize: 1024, tex: 512 },
-  alta: { pixel: 1.5, shadows: 2, shadowSize: 1024, tex: 512 },
+  baixa: { pixel: 0.75, shadows: 0, shadowSize: 512, tex: 256, lights: 1 },
+  media: { pixel: 1, shadows: 1, shadowSize: 1024, tex: 512, lights: 2 },
+  alta: { pixel: 1.5, shadows: 2, shadowSize: 1024, tex: 512, lights: 3 },
 };
 function detectQuality() {
   try { const s = localStorage.getItem('sala_quality'); if (s && QUALITY[s]) return s; } catch (e) { /* sem storage */ }
@@ -47,10 +48,12 @@ function detectQuality() {
   return mobile ? 'baixa' : 'media';
 }
 let qualityName = detectQuality();
+let resScale = 1, resScaleCap = 1, adaptT = 0, lowFps = 0;        // resolucao dinamica: cai sozinha quando o fps cai e volta quando sobra folga
 
 // ------------------------------------------------------------------ renderizador
 const canvas = $('game');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+const COARSE = matchMedia('(pointer: coarse)').matches;
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !COARSE, powerPreference: 'high-performance' });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.18;
@@ -133,12 +136,20 @@ if (autoAdded) console.info('colisores automaticos adicionados:', autoAdded);
   scenery.root.updateMatrixWorld(true);
 })();
 
+// junta o cenario fixo em poucos blocos: o celular desenha bem menos coisas por quadro (visual igual)
+try {
+  const mr = mergeStaticMeshes(THREE, scenery.root);
+  console.info('cenario: malhas', mr.before, '->', mr.after);
+} catch (err) { console.warn('fusao do cenario ignorada:', err); }
+
 function applyQuality(name) {
   qualityName = name;
   const q = QUALITY[name];
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, q.pixel));
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, q.pixel) * resScale);
   renderer.shadowMap.enabled = q.shadows > 0;
   world.setShadowQuality(q.shadows, q.shadowSize);
+  world.setLightCount(q.lights);
+  fx.setLite(name === 'baixa');
   if (character.skin) character.skin.setShadows(q.shadows > 1);
   scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
   resize();
@@ -146,6 +157,10 @@ function applyQuality(name) {
   document.querySelectorAll('[data-quality]').forEach((b) => b.classList.toggle('on', b.dataset.quality === name));
 }
 
+function applyRes() {
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, QUALITY[qualityName].pixel) * resScale);
+  resize();
+}
 function resize() {
   const w = window.innerWidth;
   const h = window.innerHeight;
@@ -225,6 +240,7 @@ for (const b of world.barrels) {
   if (dm) {
     const zero = new THREE.Matrix4().makeScale(0, 0, 0);
     for (const d of scenery.drums) {
+      d.col.noShoot = true;
       const orig = new THREE.Matrix4();
       dm.getMatrixAt(d.idx, orig);
       explosives.addBarrel({ x: d.x, z: d.z, r: d.r, h: d.h, col: d.col,
@@ -235,8 +251,15 @@ for (const b of world.barrels) {
 }
 const online = new Online({ net: null, scene, makeRig });
 const wps = pickups.items.map((it) => ({ x: it.x, z: it.z }));
-const bots = new BotManager({ scene, colliders: world.colliders, makeRig, waypoints: wps, count: 8 });
+const bots = new BotManager({ scene, colliders: world.colliders, makeRig, waypoints: wps, count: COARSE ? 5 : 8 });
 
+let lastFarShot = 0;
+function farShot(id) {            // tiros de bots/outros jogadores: som leve, no maximo 1 a cada 90 ms
+  const now = performance.now();
+  if (now - lastFarShot < 90) return;
+  lastFarShot = now;
+  audio.shotLite(WEAPONS[id].kind);
+}
 function onBlast(b) {
   if (match.active && !match.dead) {
     const d = Math.hypot(player.x - b.x, player.y + 0.9 - b.y, player.z - b.z);
@@ -268,7 +291,7 @@ function hurtPlayer(dmg) {
 }
 function killPlayer() {
   match.dead = true; match.deadT = 4; match.deaths++;
-  using = null; input.fire = false; input.aim = false;
+  using = null; state.gelMode = false; input.fire = false; input.aim = false;
   $('dead').classList.add('on');
   if (online.active) net.send({ t: 'dead', by: lastAttacker });
 }
@@ -289,7 +312,7 @@ const state = {
   aimBlend: 0, slide: 0, recoilVis: 0, camDist: 2.6, fireHold: 0, wallPull: 0,
   crouch: false, crouchK: 0, alignK: 1, grounded: true, airK: 0,
   time: 0, lastStep: 0,
-  armed: true, startArmed: true, outdoor: 0,
+  armed: true, startArmed: true, outdoor: 0, gelMode: false,
 };
 let prevWeaponIndex = -1;
 
@@ -437,16 +460,21 @@ function shoot() {
   raycaster.near = 0;
   raycaster.far = cfg.range;
 
-  const hits = raycaster.intersectObjects(explosives.iceMeshes.length ? shootables.concat(explosives.iceMeshes) : shootables, false);
+  const hits = raycaster.intersectObjects(shootables, false);
   let hit = hits.length ? hits[0] : null;
+  // parede/estrutura de ferro/gelo/qualquer colisor: a bala NUNCA atravessa (vale o que estiver mais perto)
+  let wallHit = rayShot(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, cfg.range, world.colliders);
+  if (wallHit && hit && hit.distance <= wallHit.t + 0.02) wallHit = null;          // o objeto visivel esta na frente
+  else if (wallHit) hit = null;                                                     // colisor na frente do que a malha mostra
 
   // ponto-alvo: o que o centro da mira enxerga
-  if (hit) _end.copy(hit.point); else _end.copy(origin).addScaledVector(dir, Math.min(cfg.range, 90));
+  if (wallHit) _end.copy(origin).addScaledVector(dir, wallHit.t);
+  else if (hit) _end.copy(hit.point); else _end.copy(origin).addScaledVector(dir, Math.min(cfg.range, 90));
 
   // alvos vivos: bots e barris
   let special = null;
   {
-    const maxD = hit ? hit.distance : cfg.range;
+    const maxD = wallHit ? wallHit.t : hit ? hit.distance : cfg.range;
     const bh = bots.rayHit(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, maxD);
     const br = explosives.rayBarrel(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, maxD);
     const rh = online.active ? online.rayHit(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, maxD) : null;
@@ -454,7 +482,7 @@ function shoot() {
     if (rh && rh.t <= nearest) special = { kind: 'remote', t: rh.t, rh };
     else if (bh && (!br || bh.t <= br.t)) special = { kind: 'bot', t: bh.t, bh };
     else if (br) special = { kind: 'barrel', t: br.t, br };
-    if (special) { _end.copy(origin).addScaledVector(dir, special.t); hit = null; }
+    if (special) { _end.copy(origin).addScaledVector(dir, special.t); hit = null; wallHit = null; }
   }
 
   // o projetil sai da boca do cano: nada pode estar no caminho (arma encostada na parede)
@@ -466,7 +494,11 @@ function shoot() {
     raycaster.set(_muzzle, _v1);
     raycaster.far = dist - 0.01;
     const block = raycaster.intersectObjects(occluders, false);
-    if (block.length) { hit = block[0]; _end.copy(hit.point); special = null; }
+    if (block.length) { hit = block[0]; wallHit = null; _end.copy(hit.point); special = null; }
+    else {
+      const wb = rayShot(_muzzle.x, _muzzle.y, _muzzle.z, _v1.x, _v1.y, _v1.z, dist - 0.01, world.colliders);
+      if (wb && wb.t > 0.05) { wallHit = wb; hit = null; special = null; _end.copy(_muzzle).addScaledVector(_v1, wb.t); }
+    }
   }
 
   stats.registerShot();
@@ -494,6 +526,20 @@ function shoot() {
     if (online.active) net.send({ t: 'ev', k: 'ign', d: { i: explosives.barrels.indexOf(special.br.barrel) } });
     audio.impact('plate');
     toast('BARRIL ACESO — AFASTE-SE!');
+  }
+  if (wallHit) {
+    const b = wallHit.box;
+    if (b.iceWall) { explosives.damageWall(b.iceWall, cfg.dmg); audio.impact('plate'); }
+    else audio.impact('wall');
+    // normal da face atingida (para a marca do tiro)
+    const ex = _end.x, ey = _end.y, ez = _end.z;
+    if (b.circle) { _normal.set(ex - b.x, 0, ez - b.z).normalize(); }
+    else {
+      const d = [Math.abs(ex - b.minX), Math.abs(ex - b.maxX), Math.abs(ey - b.minY), Math.abs(ey - b.maxY), Math.abs(ez - b.minZ), Math.abs(ez - b.maxZ)];
+      let k = 0; for (let i = 1; i < 6; i++) if (d[i] < d[k]) k = i;
+      _normal.set(k === 0 ? -1 : k === 1 ? 1 : 0, k === 2 ? -1 : k === 3 ? 1 : 0, k === 4 ? -1 : k === 5 ? 1 : 0);
+    }
+    fx.impact(_end, _normal, scene, b.iceWall ? 0.05 : 0.07, true);
   }
   if (hit && hit.face) {
     _normal.copy(hit.face.normal);
@@ -530,6 +576,7 @@ function shoot() {
 
 // ------------------------------------------------------------------ restart / pausa
 function restart() {
+  state.gelMode = false;
   vitals.reset(); pack.reset(); using = null; explosives.reset();
   match.time = MATCH_SECONDS; match.kills = 0; match.deaths = 0; match.dead = false; fallPeak = 0; wasAir = false;
   $('dead').classList.remove('on');
@@ -838,9 +885,11 @@ net.on.msg = (m) => {
     if (m.k === 'shot' && m.d && m.d.a) {
       fx.tracer(new THREE.Vector3(...m.d.a), new THREE.Vector3(...m.d.b));
       const dd = Math.hypot(m.d.a[0] - player.x, m.d.a[2] - player.z);
-      if (dd < 45 && WEAPONS[m.d.w]) audio.shot(m.d.w, WEAPONS[m.d.w].kind);
+      if (dd < 45 && WEAPONS[m.d.w]) farShot(m.d.w);
     } else if (m.k === 'gren' && m.d) {
       explosives.throwGrenade(m.d.kind, new THREE.Vector3(...m.d.o), new THREE.Vector3(...m.d.v), m.from, m.d.kind === 'gel' ? 13 : 15);
+    } else if (m.k === 'ice' && m.d) {
+      explosives.placeIce(m.d.x, m.d.z, m.d.dx, m.d.dz, m.from);
     } else if (m.k === 'ign' && m.d) {
       const b = explosives.barrels[m.d.i]; if (b) explosives.ignite(b);
     }
@@ -882,6 +931,21 @@ $('btnSquad').addEventListener('click', () => openFriends('squad'));
 $('btnFriends') && $('btnFriends').addEventListener('click', () => openFriends());
 $('btnFriendsBack').addEventListener('click', () => showScreen('lobby'));
 
+// ---- instalar como app (atalho na tela inicial)
+let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstall = e; });
+window.addEventListener('appinstalled', () => { deferredInstall = null; $('installRow').hidden = true; });
+if (window.matchMedia && matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || navigator.standalone) $('installRow').hidden = true;
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('./sw.js').catch(() => {});
+$('btnInstall').addEventListener('click', async () => {
+  const help = $('installHelp');
+  if (deferredInstall) { deferredInstall.prompt(); try { await deferredInstall.userChoice; } catch (e) { /* ok */ } deferredInstall = null; return; }
+  const ua = navigator.userAgent || '';
+  help.hidden = false;
+  if (/iPhone|iPad|iPod/i.test(ua) || (/Mac/i.test(ua) && navigator.maxTouchPoints > 1)) help.textContent = 'iPhone/iPad (Safari): toque no botão Compartilhar (quadrado com seta) → "Adicionar à Tela de Início" → Adicionar.';
+  else if (/Android/i.test(ua)) help.textContent = 'Android: abra no Chrome (não pelo navegador de dentro de outro app), toque nos 3 pontinhos → "Instalar app". Se só aparecer "Adicionar à tela inicial", use essa opção: cria o atalho do mesmo jeito.';
+  else help.textContent = 'Computador (Chrome/Edge): clique no ícone de instalar na barra de endereço (ou menu ⋮ → "Instalar DUSKFALL"). No Safari do Mac: Arquivo → "Adicionar ao Dock".';
+});
 function openSettings() { settingsFrom = state.started ? 'pause' : 'lobby'; showScreen('settings'); }
 $('btnSettings').addEventListener('click', openSettings);
 $('btnSettings2').addEventListener('click', openSettings);
@@ -907,6 +971,8 @@ $('btnMute').addEventListener('click', () => {
 if (store.get('sala_mute', '0') === '1') { audio.setMuted(true); $('btnMute').textContent = 'Som: desligado'; }
 document.querySelectorAll('[data-quality]').forEach((b) => b.addEventListener('click', () => applyQuality(b.dataset.quality)));
 document.addEventListener('visibilitychange', () => { if (document.hidden && state.started && !state.paused) setPaused(true); });
+// no celular, o primeiro toque ja entra em tela cheia e trava deitado (o app instalado ja abre deitado pelo manifesto)
+document.addEventListener('pointerdown', () => { if (DEVICE_MOBILE && fsPref) enterFullscreen(); }, { once: true });
 window.addEventListener('touchstart', () => {
   if (!input.touch) { input.touch = true; document.body.classList.add('touch'); }
 }, { passive: true, once: false });
@@ -940,7 +1006,56 @@ function throwNade(kind) {
   explosives.throwGrenade(kind, o, d, 'player', kind === 'gel' ? 13 : 15);
   if (online.active) net.send({ t: 'ev', k: 'gren', d: { kind, o: [o.x, o.y, o.z], v: [d.x, d.y, d.z] } });
 }
+// ---- granada de gelo: segura na mao, mostra onde vai ficar e cria a parede NA HORA ao soltar
+const ICE_S = EXPLOSIVE_STATS.ICE;
+const gelPrev = { x: 0, z: 0, dx: 0, dz: -1, y: 0 };
+const gelMat = new THREE.MeshBasicMaterial({ color: 0x66ddff, transparent: true, opacity: 0.32, depthWrite: false, toneMapped: false });
+const gelEdge = new THREE.LineBasicMaterial({ color: 0xbff3ff, toneMapped: false, depthTest: false });
+const gelBoxes = [[ICE_S.thick, ICE_S.len], [ICE_S.len, ICE_S.thick]].map(([w, d]) => {
+  const g = new THREE.BoxGeometry(w, ICE_S.h, d);
+  const m = new THREE.Mesh(g, gelMat);
+  m.add(new THREE.LineSegments(new THREE.EdgesGeometry(g), gelEdge));
+  m.visible = false; m.renderOrder = 15;
+  scene.add(m);
+  return m;
+});
+function toggleGel() {
+  if (match.dead) return;
+  if (state.gelMode) { state.gelMode = false; return; }
+  if (pack.n.gel < 1) { toast('SEM GRANADA DE GELO'); return; }
+  state.gelMode = true;
+  input.fire = false;
+  toast('GELO: MIRE E TOQUE EM FOGO');
+}
+function updateGelPreview() {
+  const on = state.gelMode && !match.dead;
+  if (!on) { gelBoxes[0].visible = false; gelBoxes[1].visible = false; return; }
+  character.eyePosition(_eye, view.yaw);
+  const f = forwardFrom(view.yaw, view.pitch, _v1);
+  let t = f.y > 0.05 ? 7 : 16;
+  if (f.y < -0.02) t = Math.min(t, (_eye.y - player.y) / -f.y);
+  const wl = rayShot(_eye.x, _eye.y, _eye.z, f.x, f.y, f.z, t, world.colliders);
+  if (wl) t = Math.max(1.2, wl.t - 0.5);
+  const hl = Math.hypot(f.x, f.z) || 1;
+  const fx0 = f.x / hl, fz0 = f.z / hl;
+  const dh = Math.max(2.4, Math.min(16, t * hl));
+  gelPrev.x = player.x + fx0 * dh; gelPrev.z = player.z + fz0 * dh;
+  gelPrev.dx = fx0; gelPrev.dz = fz0;
+  gelPrev.y = groundHeight(gelPrev.x, gelPrev.z, player.y + 0.8, world.colliders);
+  const alongZ = Math.abs(fx0) > Math.abs(fz0);
+  const m = gelBoxes[alongZ ? 0 : 1], o = gelBoxes[alongZ ? 1 : 0];
+  m.visible = true; o.visible = false;
+  m.position.set(gelPrev.x, gelPrev.y + ICE_S.h / 2, gelPrev.z);
+}
+function placeGel() {
+  if (!state.gelMode || pack.n.gel < 1) return;
+  pack.take('gel');
+  explosives.placeIce(gelPrev.x, gelPrev.z, gelPrev.dx, gelPrev.dz, 'player');
+  if (online.active) net.send({ t: 'ev', k: 'ice', d: { x: gelPrev.x, z: gelPrev.z, dx: gelPrev.dx, dz: gelPrev.dz } });
+  if (pack.n.gel < 1) state.gelMode = false;
+}
 function openPack() {
+  state.gelMode = false;
   if (!state.started) return;
   setPaused(true);
   renderPack();
@@ -980,7 +1095,7 @@ function renderPack() {
     if (!n) continue;
     const btns = [];
     if (k === 'bandage' || k === 'medkit') btns.push(['Usar', () => { closePack(); startUse(k); }]);
-    else btns.push(['Jogar', () => { closePack(); throwNade(k); }]);
+    else btns.push([k === 'gel' ? 'Usar' : 'Jogar', () => { closePack(); if (k === 'gel') toggleGel(); else throwNade(k); }]);
     btns.push(['Descartar 1', () => { pack.take(k); dropItem(k, { bandage: 'a', medkit: 'k', frag: 'f', gel: 'g' }[k]); }]);
     row(ITEM_NAMES[k], 'x' + n + ' / ' + ITEM_CAP[k], btns);
   }
@@ -1000,7 +1115,8 @@ function updateCombatHud() {
   const ub = $('useBar');
   setClass('ub', ub, 'on', !!using);
   if (using) $('useFill').style.transform = `scaleX(${using.t / using.dur})`;
-  $('hurt').style.opacity = String(Math.max(0, hurtT) * 1.4 + (vitals.hp < 50 ? 0.25 : 0));
+  const ho = (Math.round((Math.max(0, hurtT) * 1.4 + (vitals.hp < 50 ? 0.25 : 0)) * 20) / 20).toFixed(2);
+  if (hudCache.ho !== ho) { hudCache.ho = ho; $('hurt').style.opacity = ho; }
   if (hurtT > 0) hurtT -= 0.016;
 }
 function endMatch() {
@@ -1048,7 +1164,7 @@ function update(dt) {
     player: { x: player.x, y: player.y, z: player.z, alive: !dead, speed: player.speed }, time: state.time,
     hitPlayer: (dmg, bot, zone) => { hurtPlayer(zone === 'cabeca' ? dmg * 2 : dmg); },
     tracer: (a, b) => fx.tracer(a, b),
-    sound: (id, dist) => { if (dist < 40) audio.shot(id, WEAPONS[id].kind); },
+    sound: (id, dist) => { if (dist < 40) farShot(id); },
   });
 
   // ---- acoes pontuais
@@ -1057,22 +1173,22 @@ function update(dt) {
     for (const a of acts) {
       if (a === 'pause') setPaused(true);
       else if (a === 'restart') restart();
-      else if (a === 'reload') { if (state.armed && w.startReload()) audio.reload(loadout.currentId, w.cfg.reloadTime); }
-      else if (a === 'swap') { cycleWeapon(); }
+      else if (a === 'reload') { state.gelMode = false; if (state.armed && w.startReload()) audio.reload(loadout.currentId, w.cfg.reloadTime); }
+      else if (a === 'swap') { state.gelMode = false; cycleWeapon(); }
       else if (a === 'hands') { if (state.armed) holster(); else switchWeapon(loadout.index); }
       else if (a === 'crouch') { state.crouch = !state.crouch; if (state.crouch) { input.runToggle = false; $('btnRun').classList.remove('on'); } }
       else if (a === 'jump') { if (state.grounded) { player.vy = 4.9; state.grounded = false; state.crouch = false; audio.jump(); } }
-      else if (/^w[1-8]$/.test(a)) switchWeapon(Number(a[1]) - 1);
+      else if (/^w[1-8]$/.test(a)) { state.gelMode = false; switchWeapon(Number(a[1]) - 1); }
       else if (a === 'heal') healAction();
       else if (a === 'frag') throwNade('frag');
-      else if (a === 'gel') throwNade('gel');
+      else if (a === 'gel') toggleGel();
       else if (a === 'pack') openPack();
     }
   }
 
   // ---- olhar (mouse/toque)
   input.takeLook(_lk);
-  const zoomNow = state.aimBlend > 0.5 ? loadout.zoom : 1;
+  const zoomNow = state.aimBlend > 0.5 && !state.gelMode ? loadout.zoom : 1;
   const sens = input.sensitivity * (state.aimBlend > 0.5 ? 0.62 : 1) / (zoomNow > 1 ? Math.pow(zoomNow, 0.75) : 1);
   view.yaw -= _lk.x * sens;
   view.pitch = clamp(view.pitch - _lk.y * sens, -1.2, 1.2);
@@ -1080,9 +1196,9 @@ function update(dt) {
   view.recoil = Math.max(0, view.recoil - (0.012 + view.recoil * 5.5) * dt); // a mira volta aos poucos
 
   // ---- mira (ADS)
-  if (!state.armed) input.aim = false;
-  const wantAim = input.aim && state.armed && !w.reloading;
-  const aimStep = 9 * dt; // ~0,11 s para entrar/sair da mira
+  if (!state.armed && !state.gelMode) input.aim = false;
+  const wantAim = input.aim && (state.armed || state.gelMode) && !w.reloading;
+  const aimStep = 16 * dt; // ~0,06 s para entrar/sair da mira
   state.aimBlend = wantAim ? Math.min(1, state.aimBlend + aimStep) : Math.max(0, state.aimBlend - aimStep);
   const aiming = state.aimBlend > 0.5;
 
@@ -1097,7 +1213,7 @@ function update(dt) {
   const sprinting = input.sprint && !dead && !using && !aiming && !w.reloading && _mv.y > 0.3 && Math.abs(_mv.x) < _mv.y * 1.2; // corre so para frente
   if (sprinting && state.crouch) state.crouch = false;   // correr levanta o personagem
   state.crouchK += ((state.crouch ? 1 : 0) - state.crouchK) * Math.min(1, 12 * dt);
-  const maxSpeed = state.crouch ? (aiming ? 1.1 : 1.6) : aiming ? AIM_WALK : sprinting ? RUN : WALK;
+  const maxSpeed = state.crouch ? (aiming ? 1.4 : 2.0) : aiming ? AIM_WALK : sprinting ? RUN : WALK;
   const mag = Math.hypot(_mv.x, _mv.y);
   _fwd.set(-Math.sin(view.yaw), 0, -Math.cos(view.yaw));
   _rgt.set(Math.cos(view.yaw), 0, -Math.sin(view.yaw));
@@ -1105,7 +1221,7 @@ function update(dt) {
   const wz = (_fwd.z * _mv.y + _rgt.z * _mv.x);
   const tvx = wx * maxSpeed * (sprinting ? 1 : Math.min(1, mag));
   const tvz = wz * maxSpeed * (sprinting ? 1 : Math.min(1, mag));
-  const accel = mag > 0.01 ? 22 : 28; // resposta rapida ao controle
+  const accel = mag > 0.01 ? 32 : 38; // resposta rapida ao controle
   const k = 1 - Math.exp(-accel * dt);
   player.vx += (tvx - player.vx) * k;
   player.vz += (tvz - player.vz) * k;
@@ -1200,7 +1316,9 @@ function update(dt) {
   loadout.update(dt);
   syncWeaponVisual();
   const firedPressed = input.takeFirePressed();
-  const allowFire = input.enabled && !state.paused && state.armed && !dead && !using;
+  if (state.gelMode && firedPressed && !dead && !using && input.enabled) placeGel();
+  const allowFire = input.enabled && !state.paused && state.armed && !state.gelMode && !dead && !using;
+  updateGelPreview();
   if (allowFire) {
     const res = w.tryFire(input.fire, firedPressed);
     if (res === 'fired') {
@@ -1236,7 +1354,7 @@ function update(dt) {
     speed: player.speed, lx: localRight, lz: localFwd, hipsYaw: player.hipsYaw,
     aimYaw: wrapAngle(player.hipsYaw + wrapAngle(view.yaw - player.hipsYaw) * state.alignK), aimPitch: aimPitch * state.alignK,
     crouch: state.crouchK, air: state.airK,
-    aimBlend: state.aimBlend, rig: state.armed ? rig : null,
+    aimBlend: state.aimBlend, rig: state.armed && !state.gelMode ? rig : null,
     draw: w.cfg.drawTime > 0 ? 1 - w.drawT / w.cfg.drawTime : 1,
     reload: w.reloading ? w.reloadProgress : -1,
     recoil: state.recoilVis, slide: slideShown, wallPull: state.wallPull,
@@ -1250,14 +1368,14 @@ function update(dt) {
   // ---- luneta: esconde arma e bracos e mostra a mira da lente quando a mira esta toda aberta
   const zoom = loadout.zoom;
   const isAwm = loadout.currentId === 'awm';
-  const scoped = state.armed && state.aimBlend > 0.6;                      // mirando: so a mira (sem maos nem arma)
-  rigs[loadout.currentId].group.visible = state.armed && !scoped;
+  const scoped = (state.armed || state.gelMode) && state.aimBlend > 0.6;   // mirando: so a mira (sem maos nem arma)
+  rigs[loadout.currentId].group.visible = state.armed && !scoped && !state.gelMode;
   if (character.skin) character.skin.group.visible = !scoped;
-  const showScope = state.armed && state.aimBlend > 0.92;
+  const showScope = (state.armed || state.gelMode) && state.aimBlend > 0.92;
   setClass('scope', $('scope'), 'on', showScope);
-  setClass('scopeS', $('scope'), 'sniper', isAwm);
-  setClass('scopeR', $('scope'), 'ring', !isAwm);
-  if (showScope) setText('scz', $('scopeZoom'), isAwm ? zoom + 'x' : '');
+  setClass('scopeS', $('scope'), 'sniper', isAwm && !state.gelMode);
+  setClass('scopeR', $('scope'), 'ring', !isAwm || state.gelMode);
+  if (showScope) setText('scz', $('scopeZoom'), isAwm && !state.gelMode ? zoom + 'x' : '');
 
   // ---- luzes naturais (sol so ao ar livre; luz de apoio acompanha o personagem)
   const outside = player.z < ROOM.minZ + 0.2 || Math.abs(player.x) > ROOM.maxX + 0.2 ? 1 : 0;
@@ -1285,6 +1403,7 @@ function update(dt) {
   if (hitT > 0) { hitT -= dt; if (hitT <= 0) hud.hit.classList.remove('on'); }
   hud.cross.classList.toggle('ads', state.aimBlend > 0.5);
   $('btnAim').classList.toggle('down', input.aim);
+  setClass('bgel', $('btnGel'), 'down', state.gelMode);
   hud.cross.style.opacity = String(showScope ? 0 : 1 - state.aimBlend * 0.4);
   updateHud();
   updateCombatHud();
@@ -1323,7 +1442,7 @@ function updateCamera(dt, pitch) {
   camera.position.lerpVectors(tp, _eye, s);
   camera.rotation.set(pitch, yaw, 0, 'YXZ');
   if (shakeT > 0) { shakeT -= dt; const k = shakeT * 0.09; camera.position.x += (Math.random() - 0.5) * k; camera.position.y += (Math.random() - 0.5) * k; }
-  const fov = TP_FOV + (adsFov(loadout.zoom) - TP_FOV) * s;
+  const fov = TP_FOV + (adsFov(state.gelMode ? 1 : loadout.zoom) - TP_FOV) * s;
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
 }
 
@@ -1366,20 +1485,28 @@ function frame(now) {
   requestAnimationFrame(frame);
   let dt = (now - last) / 1000;
   last = now;
-  if (dt > 0.05) dt = 0.05;
+  if (dt > 0.1) dt = 0.1;                       // ate 10 fps o jogo anda em tempo real (antes ficava em camera lenta)
   if (dt <= 0) return;
   const portrait = input.touch && window.innerHeight > window.innerWidth;
   if (state.started && !state.paused) { if (!portrait) update(dt); }
   else if (!state.started) lobbyScene(dt);
   scenery.update(camera, state.started && !state.paused ? dt : 0);
   shadowTick++;
-  if (renderer.shadowMap.enabled && (shadowTick % 3 === 0)) renderer.shadowMap.needsUpdate = true;
+  if (renderer.shadowMap.enabled && (shadowTick % 4 === 0)) renderer.shadowMap.needsUpdate = true;
   renderer.render(scene, camera);
   fpsAcc += dt; fpsN++;
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
     if (el) el.textContent = fps + ' fps';
+    if (state.started && !state.paused) {
+      adaptT += 1;
+      const prev = resScale;
+      if (fps < 40 && resScale > 0.5 && adaptT >= 2) { resScaleCap = resScale - 0.05; resScale = Math.max(0.5, resScale - 0.15); adaptT = 0; }
+      else if (fps >= 58 && resScale < Math.min(1, resScaleCap) && adaptT >= 12) { resScale = Math.min(Math.min(1, resScaleCap), resScale + 0.05); adaptT = 0; }   // sobe devagar e nunca volta ao nivel que travou
+      if (fps < 28) { lowFps += 1; if (lowFps >= 3 && qualityName !== 'baixa') { applyQuality('baixa'); toast('MODO LEVE ATIVADO'); lowFps = 0; } } else lowFps = 0;
+      if (resScale !== prev) applyRes();
+    }
     fpsAcc = 0; fpsN = 0;
   }
 }

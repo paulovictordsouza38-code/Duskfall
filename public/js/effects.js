@@ -23,6 +23,9 @@ export class Effects {
     this.flash = new THREE.Sprite(this.flashMat);
     this.flash.visible = false;
     this.flashLight = new THREE.PointLight(0xffb468, 0, 9, 2);
+    this._blastLight = new THREE.PointLight(0xff9b50, 0, 22, 2);   // criada ja no inicio: criar luz no meio do jogo trava (recompila shaders)
+    scene.add(this._blastLight);
+    this.lite = false;
     this.flashT = 0;
     this.flashScale = 1;
     scene.add(this.flash, this.flashLight);
@@ -130,6 +133,13 @@ export class Effects {
     t.visible = true;
   }
 
+  /** Modo leve: sem luzes de clarao e de explosao (menos custo por pixel). */
+  setLite(on) {
+    this.lite = on;
+    this.flashLight.visible = !on;
+    this._blastLight.visible = !on;
+  }
+
   /** Explosao: bola de fogo + onda + luz (pool pequeno). */
   blast(p, radius = 6) {
     if (!this._blasts) {
@@ -137,9 +147,9 @@ export class Effects {
       for (let i = 0; i < 4; i++) {
         const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.sparkMat.map, color: 0xffa040, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false }));
         const smoke = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.sparkMat.map, color: 0x2a2623, transparent: true, depthWrite: false, toneMapped: false, opacity: 0 }));
-        const l = new THREE.PointLight(0xff9b50, 0, 22, 2);
+        const l = this._blastLight;
         m.visible = false; smoke.visible = false;
-        this.scene.add(m, smoke, l);
+        this.scene.add(m, smoke);
         this._blasts.push({ m, smoke, l, t: 0, r: 1, active: false });
       }
       this._blastIdx = 0;
@@ -194,11 +204,12 @@ export class Effects {
 
   update(dt) {
     if (this._blasts) {
+      let li = 0;
       for (const b of this._blasts) {
         if (!b.active) continue;
         b.t += dt;
         const k = b.t / 0.9;
-        if (k >= 1) { b.active = false; b.m.visible = false; b.smoke.visible = false; b.l.intensity = 0; continue; }
+        if (k >= 1) { b.active = false; b.m.visible = false; b.smoke.visible = false; continue; }
         const e = 1 - Math.pow(1 - Math.min(1, k * 2.2), 2);
         const sz = b.r * (0.5 + 1.4 * e);
         b.m.scale.set(sz, sz, 1);
@@ -206,8 +217,9 @@ export class Effects {
         b.smoke.scale.set(sz * 1.2, sz * 1.2, 1);
         b.smoke.position.y += dt * 1.4;
         b.smoke.material.opacity = Math.min(0.55, k * 3) * (1 - k);
-        b.l.intensity = 90 * Math.max(0, 1 - k * 2.6);
+        li = Math.max(li, 90 * Math.max(0, 1 - k * 2.6));
       }
+      this._blastLight.intensity = li;
     }
     if (this.flashT > 0) {
       this.flashT -= dt;

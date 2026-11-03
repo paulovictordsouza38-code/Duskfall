@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DUSKFALL - diagnóstico de instalação</title>
+<link rel="manifest" href="./manifest.webmanifest"><link rel="icon" href="./favicon.ico">
+<style>body{font:17px/1.5 Arial,sans-serif;background:#0b0c0e;color:#e8e4d8;margin:0;padding:18px}h1{font-size:22px;color:#d9b300}
+.r{padding:8px 10px;margin:6px 0;border-left:4px solid #555;background:#15171a;word-break:break-all}.ok{border-color:#3fb950}.no{border-color:#f85149}
+button{font:inherit;font-weight:700;padding:12px 18px;background:#d9b300;border:0;margin:10px 0}small{color:#9a9a90}</style></head>
+<body><h1>DUSKFALL — teste de instalação</h1>
+<div id="out"></div>
+<button id="b" hidden>Instalar agora</button>
+<p><small>Tire um print desta tela e mande para mim se algo estiver vermelho.</small></p>
+<script>
+const out=document.getElementById('out');
+function row(ok,t){const d=document.createElement('div');d.className='r '+(ok?'ok':'no');d.textContent=(ok?'✔ ':'✘ ')+t;out.appendChild(d);}
+let dp=null;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();dp=e;row(true,'O Chrome liberou a instalação! Toque no botão abaixo.');const b=document.getElementById('b');b.hidden=false;b.onclick=()=>dp.prompt();});
+(async()=>{
+  row(location.protocol==='https:','Endereço seguro (https): '+location.origin);
+  for(const u of ['manifest.webmanifest','icons/icon-192.png','icons/icon-512.png','icons/maskable-512.png','sw.js','favicon.ico','index.html']){
+    try{const r=await fetch(u,{cache:'no-store'});row(r.ok,u+' → '+r.status+' '+(r.headers.get('content-type')||''));}catch(e){row(false,u+' → erro '+e.message);}
+  }
+  try{const m=await (await fetch('manifest.webmanifest',{cache:'no-store'})).json();row(!!(m.icons&&m.icons.length),'manifesto: '+m.name+', ícones: '+(m.icons||[]).length+', display: '+m.display);}catch(e){row(false,'manifesto ilegível: '+e.message);}
+  try{
+    const reg=await navigator.serviceWorker.register('./sw.js');await navigator.serviceWorker.ready;
+    row(true,'service worker registrado (escopo '+reg.scope+')');
+  }catch(e){row(false,'service worker falhou: '+e.message);}
+  row(matchMedia('(display-mode: standalone)').matches,'já está aberto como app instalado? (✘ é normal aqui)');
+  setTimeout(()=>{if(!dp)row(false,'O Chrome ainda não liberou a instalação. Feche esta aba, abra de novo e espere 10 segundos.');},6000);
+})();
+</script></body></html>

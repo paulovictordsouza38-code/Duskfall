@@ -161,7 +161,8 @@ export function createPickups(scene, lib, colliders) {
       for (const it of items) {
         const dx = it.x - px;
         const dz = it.z - pz;
-        const near = it.active && dx * dx + dz * dz < 55 * 55;
+        const lim = it.type === 'weapon' ? 30 : 24;
+        const near = it.active && dx * dx + dz * dz < lim * lim;
         if (it.group.visible !== near) it.group.visible = near;
         if (!near) continue;
         it.body.rotation.y += dt * (it.type === 'weapon' ? 1.1 : 1.6);

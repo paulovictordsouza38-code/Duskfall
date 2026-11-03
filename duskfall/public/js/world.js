@@ -418,6 +418,7 @@ export function buildWorld(scene, lib, renderer) {
     for (const ry of [-0.3, 0, 0.3]) add(ringGeo, M.barrel, 0, ry, 0, { parent: b, cast: false });
     add(new THREE.CylinderGeometry(0.2, 0.2, 0.01, 16), M.steel, 0, 0.465, 0, { parent: b, cast: false });
     const bcol = makeCircle(bx, bz, 0.3, 0, 0.92);
+    bcol.noShoot = true;                 // barril tem acerto proprio (explode)
     colliders.push(bcol);
     b.userData.barrel = true;
     worldBarrels.push({ x: bx, z: bz, r: 0.3, h: 0.92, mesh: b, col: bcol });
@@ -458,6 +459,7 @@ export function buildWorld(scene, lib, renderer) {
     root.add(t.root);
     targets.push(t);
     t.collider = makeCircle(x0, z0, t.kind === 'plate' ? 0.3 : 0.34, 0, 1.9);
+    t.collider.noShoot = true;           // o alvo tem acerto proprio
     colliders.push(t.collider);
     for (const m of t.meshes) occluders.push(m); // (usado tambem como lista de alvos pelo raycast; filtrado por userData.target)
     return t;
@@ -532,6 +534,12 @@ export function buildWorld(scene, lib, renderer) {
   for (const t of targets) for (const m of t.meshes) targetMeshes.push(m);
   const sceneryOccluders = occluders.filter((m) => !m.userData.target);
 
+  const spotBase = spots.map((s) => s.intensity);
+  // menos luzes por pixel = mais fps. 1 spot (baixa), 2 (media), 3 (alta); as que ficam compensam a luz.
+  function setLightCount(n) {
+    const boost = [0, 2.3, 1.45, 1][n] || 1;
+    spots.forEach((s, i) => { s.visible = shadowOrder.indexOf(i) < n; s.intensity = spotBase[i] * boost; });
+  }
   const shadowOrder = [1, 0, 2]; // quais spots projetam sombra conforme a qualidade
   function setShadowQuality(count, mapSize) {
     spots.forEach((s, i) => {
@@ -556,6 +564,7 @@ export function buildWorld(scene, lib, renderer) {
     spots,
     hemi,
     setShadowQuality,
+    setLightCount,
     pickups,
     update(dt, time) {
       for (const t of targets) { t.update(dt, time); if (t.moving) moveCircle(t.collider, t.root.position.x, t.root.position.z); }

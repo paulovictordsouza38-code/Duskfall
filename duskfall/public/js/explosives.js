@@ -165,12 +165,19 @@ export class Explosives {
     this.root.add(mesh);
     const wall = { mesh, col, hp: ICE.hp, life: ICE.life, cx: g.pos.x, cz: g.pos.z, y0: gy, melt: 0, owner: g.owner };
     mesh.userData.ice = wall;
+    col.iceWall = wall;
     this.walls.push(wall);
     this.iceMeshes.push(mesh);
     if (this.walls.length > ICE.maxWalls) this._removeWall(this.walls[0]);
     if (this.o.onIce) this.o.onIce(col);                                 // empurra quem estiver dentro (nunca prende ninguem)
     if (this.o.audio) this.o.audio.ice();
     return wall;
+  }
+
+  /** Gelo instantaneo (sem granada voando): a parede ja nasce pronta e solida neste mesmo instante. */
+  placeIce(x, z, dirX, dirZ, owner = null) {
+    const gy = groundHeight(x, z, 0.8, this.colliders);
+    return this._makeIce({ pos: { x, y: gy, z }, dirX, dirZ, owner });
   }
 
   damageWall(w, dmg) {

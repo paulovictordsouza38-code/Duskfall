@@ -4,6 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0b0c0e">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="./icons/favicon-16.png">
+<meta property="og:title" content="DUSKFALL">
+<meta property="og:description" content="Tático, online, até 40 jogadores.">
+<meta property="og:image" content="./img/capa-share.jpg">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DUSKFALL">
 <title>DUSKFALL</title>
 <style>
   :root { --fg:#e8e4d8; --dim:#9a9a90; --acc:#d9b300; --bg:rgba(10,12,14,.62); --line:rgba(232,228,216,.22); }
@@ -82,7 +94,7 @@
   .keys b { color:var(--fg); }
   .q { display:flex; gap:8px; justify-content:center; margin:8px 0 16px; align-items:center; color:var(--dim); font-size:14px; flex-wrap:wrap; }
   .actions { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
-  #loading { position:fixed; inset:0; z-index:20; display:flex; align-items:center; justify-content:center; background:#07080a; font-size:18px; color:var(--dim);
+  #loading { position:fixed; inset:0; z-index:20; display:flex; align-items:flex-end; justify-content:center; background:#07080a url(./img/capa.jpg) center/cover no-repeat; text-shadow:0 2px 8px #000; padding-bottom:6vh !important; font-size:18px; color:var(--dim);
     padding:20px; text-align:center; }
   #loading.hide { display:none; }
   .note { margin-top:14px; font-size:12px; color:#6f6f66; }
@@ -379,6 +391,10 @@
           <button class="btn small" id="btnAimMode" type="button">Mira</button>
           <button class="btn small" id="btnArmedStart" type="button">Começar armado</button>
         </div>
+        <div class="q" id="installRow">
+          <button class="btn small" id="btnInstall" type="button">Instalar na tela inicial</button>
+        </div>
+        <p class="sub" id="installHelp" hidden></p>
         <div class="q" id="fsRow">
           <button class="btn small" id="btnFsPref" type="button">Tela cheia: obrigatória</button>
         </div>

@@ -50,7 +50,7 @@ export class BotManager {
   _respawn(b, avoid) {
     const w = this._spawnPoint(avoid);
     b.revive();
-    b.hp = HP_MAX;
+    b.hp = Math.round(HP_MAX * 0.6);   // bots mais frageis
     b.place(w.x + (this.rand() - 0.5) * 2, 0, w.z + (this.rand() - 0.5) * 2, this.rand() * Math.PI * 2);
     b.setWeapon(BOT_WEAPONS[Math.floor(this.rand() * BOT_WEAPONS.length)]);
     b.ai.goal = null; b.ai.cool = 1.2; b.ai.seenT = -9;
@@ -153,11 +153,11 @@ export class BotManager {
         if (ai.rest > 0) ai.rest -= dt;
         else if (ai.cool <= 0 && err < 0.2 && dist < 80) {
           const cfg = WEAPONS[b.weaponId];
-          ai.cool = cfg.interval * (cfg.auto ? 2.1 : 1.2) * (1 + this.rand() * 0.6) + (cfg.kind === 'sniper' ? 1.2 : 0);
+          ai.cool = cfg.interval * (cfg.auto ? 3.0 : 1.7) * (1 + this.rand() * 0.8) + (cfg.kind === 'sniper' ? 1.2 : 0);
           ai.burst++;
           if (ai.burst >= (cfg.auto ? 3 + Math.floor(this.rand() * 4) : 2)) { ai.burst = 0; ai.rest = 0.5 + this.rand() * 1.1; }
           const move = P.speed > 2 ? 0.75 : 1;
-          const hitP = clamp((0.5 - dist * 0.0085) * move, 0.06, 0.46);
+          const hitP = clamp((0.5 - dist * 0.0085) * move * 0.55, 0.03, 0.26);
           b.muzzleWorld(_m);
           _e.set(P.x, P.y + 1.3, P.z);
           let hit = this.rand() < hitP;
@@ -168,7 +168,7 @@ export class BotManager {
           if (!hit && !ai.wall) { _e.x += (this.rand() - 0.5) * 2.4; _e.y += (this.rand() - 0.5) * 1.6; _e.z += (this.rand() - 0.5) * 2.4; }
           if (ctx.tracer) ctx.tracer(_m, _e);
           if (ctx.sound) ctx.sound(b.weaponId, dist);
-          if (hit) ctx.hitPlayer(Math.round(cfg.dmg * 0.8), b, this.rand() < 0.06 ? 'cabeca' : 'peito');
+          if (hit) ctx.hitPlayer(Math.round(cfg.dmg * 0.55), b, this.rand() < 0.06 ? 'cabeca' : 'peito');
         }
       } else {
         // passeia entre pontos do mapa

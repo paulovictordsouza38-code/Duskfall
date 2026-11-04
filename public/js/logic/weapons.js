@@ -145,7 +145,7 @@ export class WeaponState {
    * @returns {'fired'|'dry'|null}
    */
   tryFire(held, pressed) {
-    const wants = this.cfg.auto ? held : pressed;
+    const wants = held || pressed;   // segurar o botao = continua atirando ate soltar (todas as armas)
     if (!wants) return null;
     if (!this.ready) return null;
     if (this.clock < this.nextShot) return null;

@@ -137,6 +137,22 @@ export function rayAABB(ox, oy, oz, dx, dy, dz, b) {
   return tmin;
 }
 
+/**
+ * Raio de TIRO: como rayBoxes, mas ignora colisores marcados `noShoot` (alvos e barris, que tem acerto proprio)
+ * e devolve { t, box } da primeira parede/estrutura/gelo no caminho (ou null). Origem dentro de uma caixa nao conta.
+ */
+export function rayShot(ox, oy, oz, dx, dy, dz, maxDist, boxes) {
+  let best = Infinity;
+  let hit = null;
+  for (let i = 0; i < boxes.length; i++) {
+    const b = boxes[i];
+    if (b.noShoot) continue;
+    const t = rayAABB(ox, oy, oz, dx, dy, dz, b);
+    if (t < best && t > 0.001) { best = t; hit = b; }
+  }
+  return best <= maxDist ? { t: best, box: hit } : null;
+}
+
 /** Menor distancia ate qualquer caixa ao longo do raio (direcao normalizada). Infinity se livre ate maxDist. */
 export function rayBoxes(ox, oy, oz, dx, dy, dz, maxDist, boxes) {
   let best = Infinity;

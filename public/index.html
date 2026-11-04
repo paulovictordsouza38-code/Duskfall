@@ -54,6 +54,8 @@
   #ammoMag.low { color:#ff5a48; }
   #ammoReserve { font-size:22px; color:var(--dim); }
   .slots { display:flex; gap:6px; justify-content:flex-end; margin-top:6px; }
+  .slots, .slot { pointer-events:auto; cursor:pointer; }
+  body.touch .slot { padding:6px 12px; }
   .slot { padding:2px 10px; border:1px solid var(--line); font-size:14px; color:var(--dim); }
   .slot.on { color:#111; background:var(--acc); border-color:var(--acc); font-weight:700; }
   .slot.lock { opacity:.35; }
@@ -128,10 +130,11 @@
   #btnFire2 { left:calc(var(--pad) + var(--J)*.18 + env(safe-area-inset-left)); bottom:calc(var(--pad) + var(--J) + 14px + env(safe-area-inset-bottom)); right:auto; }
   .topbtns .tbtn { padding:6px 9px; display:flex; align-items:center; justify-content:center; }
   .topbtns .tbtn svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
-  #rotate { position:fixed; inset:0; z-index:60; display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px; background:rgba(5,6,8,.94); text-align:center; padding:24px; font-size:20px; }
+  #rotate { position:fixed; inset:0; z-index:100; display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px; background:#050608; text-align:center; padding:24px; font-size:20px; }
   #rotate svg { width:84px; height:84px; fill:none; stroke:var(--acc); stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; animation:rot 2.2s ease-in-out infinite; }
   @keyframes rot { 0%,25% { transform:rotate(0); } 60%,100% { transform:rotate(-90deg); } }
-  @media (orientation:portrait) { body.touch.playing #rotate { display:flex; } }
+  @media (orientation:portrait) and (pointer:coarse) { #rotate { display:flex; } }
+  @media (orientation:portrait) { body.touch #rotate { display:flex; } }
   /* edicao do HUD */
   #editBar { position:fixed; left:0; right:0; top:0; z-index:40; display:none; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap;
     padding:calc(8px + env(safe-area-inset-top)) 12px 8px; background:rgba(8,9,11,.92); border-bottom:2px solid var(--acc); font-size:14px; text-align:center; touch-action:auto; }
@@ -447,6 +450,17 @@
 
 <div id="loading">Carregando DUSKFALL…</div>
 
+<script>
+  // Celular: trava a tela deitada o quanto antes (carregamento, lobby e jogo). Em retrato aparece o aviso para girar.
+  (function () {
+    function lock() { try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(function () {}); } catch (e) {} }
+    lock();
+    window.addEventListener('pageshow', lock);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) lock(); });
+    window.addEventListener('pointerdown', lock, { passive: true });
+    window.addEventListener('orientationchange', lock);
+  })();
+</script>
 <script>
   // Escolhe a origem do Three.js: copia local (vendor/) se existir; senao CDN.
   (function () {

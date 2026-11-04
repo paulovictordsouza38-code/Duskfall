@@ -28,9 +28,9 @@ const clamp = THREE.MathUtils.clamp;
 const smooth = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 
 const PLAYER_RADIUS = 0.34;
-const WALK = 3.0;
-const RUN = 6.2;
-const AIM_WALK = 2.1;
+const WALK = 2.6;
+const RUN = 5.2;
+const AIM_WALK = 1.8;
 const ADS_BASE_FOV = 52;
 // campo de visao vertical com a mira: 52 graus nas miras de ferro; luneta 2x/4x/8x divide a tangente
 const adsFov = (zoom) => (2 * Math.atan(Math.tan((ADS_BASE_FOV * Math.PI) / 360) / zoom) * 180) / Math.PI;
@@ -38,8 +38,8 @@ const TP_FOV = 66;
 
 // ------------------------------------------------------------------ qualidade
 const QUALITY = {
-  baixa: { pixel: 0.75, shadows: 0, shadowSize: 512, tex: 256, lights: 1 },
-  media: { pixel: 1, shadows: 1, shadowSize: 1024, tex: 512, lights: 2 },
+  baixa: { pixel: 1, shadows: 0, shadowSize: 512, tex: 256, lights: 1 },
+  media: { pixel: 1.25, shadows: 1, shadowSize: 1024, tex: 512, lights: 2 },
   alta: { pixel: 1.5, shadows: 2, shadowSize: 1024, tex: 512, lights: 3 },
 };
 function detectQuality() {
@@ -360,6 +360,12 @@ const handsSlot = document.createElement('div');
 handsSlot.className = 'slot';
 handsSlot.textContent = 'H MÃOS';
 $('slots').appendChild(handsSlot);
+// tocar/clicar no nome da arma escolhe ela (qualquer arma que ja esta na mochila) ; MAOS guarda a arma
+slotEls.forEach((d, i) => {
+  const pick = (e) => { e.preventDefault(); e.stopPropagation(); if (loadout.owned[i]) input.actions.push('w' + (i + 1)); };
+  d.addEventListener('pointerdown', pick);
+});
+handsSlot.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); input.actions.push('hands'); });
 const hudCache = {};
 function setText(key, el, v) { if (hudCache[key] !== v) { hudCache[key] = v; el.textContent = v; } }
 function setClass(key, el, cls, on) { const k = key + cls; if (hudCache[k] !== on) { hudCache[k] = on; el.classList.toggle(cls, on); } }
@@ -426,7 +432,7 @@ function holster() {
 
 // botao de trocar: pistola -> MP40 (se tiver) -> maos livres -> pistola
 function cycleWeapon() {
-  if (!state.armed) { switchWeapon(loadout.index); return; }
+  if (!state.armed) { const f = loadout.owned.indexOf(true); switchWeapon(f >= 0 ? f : loadout.index); return; }   // de maos livres volta para a primeira arma da mochila
   const next = loadout.nextOwned();
   if (next > loadout.index) switchWeapon(next);
   else holster();
@@ -1202,6 +1208,36 @@ function update(dt) {
   state.aimBlend = wantAim ? Math.min(1, state.aimBlend + aimStep) : Math.max(0, state.aimBlend - aimStep);
   const aiming = state.aimBlend > 0.5;
 
+  // ---- ajuda de mira: ao mirar ou atirar, a mira acompanha o oponente (bot ou jogador) que esta perto do centro e visivel
+  if (!dead && state.armed && !state.gelMode && !using && input.enabled && (input.fire || aiming)) {
+    character.eyePosition(_eye, view.yaw);
+    const maxR = WEAPONS[loadout.currentId].range || 80;
+    const cone = aiming ? 0.16 : 0.24;                     // angulo maximo (rad) para capturar o alvo
+    let bestE = cone, bYaw = 0, bPitch = 0, found = false;
+    const consider = (tx, ty, tz) => {
+      const dx = tx - _eye.x, dy = ty - _eye.y, dz = tz - _eye.z;
+      const hd = Math.hypot(dx, dz);
+      const d = Math.hypot(hd, dy);
+      if (d < 1.2 || d > Math.min(maxR, 90)) return;
+      const ty2 = Math.atan2(-dx, -dz);
+      const tp = Math.atan2(dy, hd);
+      const ey = wrapAngle(ty2 - view.yaw), ep = tp - (view.pitch + view.recoil);
+      const e = Math.hypot(ey * Math.cos(tp), ep);
+      if (e >= bestE) return;
+      if (rayShot(_eye.x, _eye.y, _eye.z, dx / d, dy / d, dz / d, d - 0.3, world.colliders)) return;   // parede no caminho
+      bestE = e; bYaw = ey; bPitch = ep; found = true;
+    };
+    if (bots.enabled) for (const b of bots.bots) if (b.alive) consider(b.x, b.y + 1.3, b.z);
+    if (online.active) for (const a of online.remotes.values()) if (a.alive && a.team !== online.team && a.tgt) consider(a.x, a.y + 1.3 - 0.4 * (a.crouch || 0), a.z);
+    if (found) {
+      const lookMag = Math.hypot(_lk.x, _lk.y);
+      const rate = (input.fire ? 11 : 4.5) / (1 + lookMag * 0.04);   // mexer a mira na mao tem prioridade
+      const kk = 1 - Math.exp(-rate * dt);
+      view.yaw = wrapAngle(view.yaw + bYaw * kk);
+      view.pitch = clamp(view.pitch + bPitch * kk, -1.2, 1.2);
+    }
+  }
+
   // ---- movimento
   input.readMove(_mv);
   if (dead) { _mv.x = 0; _mv.y = 0; }
@@ -1221,7 +1257,7 @@ function update(dt) {
   const wz = (_fwd.z * _mv.y + _rgt.z * _mv.x);
   const tvx = wx * maxSpeed * (sprinting ? 1 : Math.min(1, mag));
   const tvz = wz * maxSpeed * (sprinting ? 1 : Math.min(1, mag));
-  const accel = mag > 0.01 ? 32 : 38; // resposta rapida ao controle
+  const accel = mag > 0.01 ? 24 : 34; // resposta rapida ao controle
   const k = 1 - Math.exp(-accel * dt);
   player.vx += (tvx - player.vx) * k;
   player.vz += (tvz - player.vz) * k;
@@ -1498,13 +1534,12 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps';
+    if (el) el.textContent = fps + ' fps · v5';
     if (state.started && !state.paused) {
       adaptT += 1;
       const prev = resScale;
-      if (fps < 40 && resScale > 0.5 && adaptT >= 2) { resScaleCap = resScale - 0.05; resScale = Math.max(0.5, resScale - 0.15); adaptT = 0; }
+      if (fps < 40 && resScale > 0.7 && adaptT >= 2) { resScaleCap = resScale - 0.05; resScale = Math.max(0.7, resScale - 0.1); adaptT = 0; }
       else if (fps >= 58 && resScale < Math.min(1, resScaleCap) && adaptT >= 12) { resScale = Math.min(Math.min(1, resScaleCap), resScale + 0.05); adaptT = 0; }   // sobe devagar e nunca volta ao nivel que travou
-      if (fps < 28) { lowFps += 1; if (lowFps >= 3 && qualityName !== 'baixa') { applyQuality('baixa'); toast('MODO LEVE ATIVADO'); lowFps = 0; } } else lowFps = 0;
       if (resScale !== prev) applyRes();
     }
     fpsAcc = 0; fpsN = 0;

@@ -38,9 +38,9 @@ const TP_FOV = 66;
 
 // ------------------------------------------------------------------ qualidade
 const QUALITY = {
-  baixa: { pixel: 1, shadows: 0, shadowSize: 512, tex: 256, lights: 1 },
-  media: { pixel: 1.25, shadows: 1, shadowSize: 1024, tex: 512, lights: 2 },
-  alta: { pixel: 1.5, shadows: 2, shadowSize: 1024, tex: 512, lights: 3 },
+  baixa: { pixel: 0.9, shadows: 0, shadowSize: 512, tex: 256, lights: 1 },
+  media: { pixel: 1, shadows: 1, shadowSize: 1024, tex: 512, lights: 2 },
+  alta: { pixel: 1.25, shadows: 2, shadowSize: 1024, tex: 512, lights: 3 },
 };
 function detectQuality() {
   try { const s = localStorage.getItem('sala_quality'); if (s && QUALITY[s]) return s; } catch (e) { /* sem storage */ }
@@ -48,6 +48,7 @@ function detectQuality() {
   return mobile ? 'baixa' : 'media';
 }
 let qualityName = detectQuality();
+let askedLite = false;
 let resScale = 1, resScaleCap = 1, adaptT = 0, lowFps = 0;        // resolucao dinamica: cai sozinha quando o fps cai e volta quando sobra folga
 
 // ------------------------------------------------------------------ renderizador
@@ -142,23 +143,40 @@ try {
   console.info('cenario: malhas', mr.before, '->', mr.after);
 } catch (err) { console.warn('fusao do cenario ignorada:', err); }
 
-function applyQuality(name) {
+// MODO LEVE: so liga quando voce escolhe qualidade Baixa, quando liga o botao nas configuracoes ou quando aceita a pergunta. Nunca sozinho.
+let leve = false;
+try { const sv = localStorage.getItem('sala_leve'); leve = sv === null ? qualityName === 'baixa' : sv === '1'; } catch (e) { /* sem storage */ }
+function pixelNow() { const q = QUALITY[qualityName]; return Math.min(devicePixelRatio || 1, q.pixel * (leve ? 0.85 : 1)) * resScale; }
+function showLeve() {
+  const b = document.getElementById('btnLeve');
+  if (b) b.textContent = leve ? 'Modo leve: ligado' : 'Modo leve: desligado';
+}
+function applyQuality(name, keepLeve) {
   qualityName = name;
+  if (!keepLeve) leve = name === 'baixa';                 // Baixa liga o modo leve; Media e Alta desligam
   const q = QUALITY[name];
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, q.pixel) * resScale);
-  renderer.shadowMap.enabled = q.shadows > 0;
-  world.setShadowQuality(q.shadows, q.shadowSize);
-  world.setLightCount(q.lights);
-  fx.setLite(name === 'baixa');
-  if (character.skin) character.skin.setShadows(q.shadows > 1);
+  renderer.setPixelRatio(pixelNow());
+  const sh = leve ? 0 : q.shadows;
+  renderer.shadowMap.enabled = sh > 0;
+  world.setShadowQuality(sh, q.shadowSize);
+  world.setLightCount(leve ? 1 : q.lights);
+  fx.setLite(leve);
+  if (character.skin) character.skin.setShadows(sh > 1);
   scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
   resize();
-  try { localStorage.setItem('sala_quality', name); } catch (e) { /* ignora */ }
+  try { localStorage.setItem('sala_quality', name); localStorage.setItem('sala_leve', leve ? '1' : '0'); } catch (e) { /* ignora */ }
   document.querySelectorAll('[data-quality]').forEach((b) => b.classList.toggle('on', b.dataset.quality === name));
+  showLeve();
+}
+function setLeve(on) { leve = on; applyQuality(qualityName, true); }
+function askLite() {
+  let ok = false;
+  try { setPaused(true); ok = window.confirm('O jogo está pesado. Ativar o MODO LEVE?'); } catch (e) { /* sem dialogo */ }
+  if (ok) { setLeve(true); toast('MODO LEVE LIGADO'); }
 }
 
 function applyRes() {
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, QUALITY[qualityName].pixel) * resScale);
+  renderer.setPixelRatio(pixelNow());
   resize();
 }
 function resize() {
@@ -976,6 +994,7 @@ $('btnMute').addEventListener('click', () => {
 });
 if (store.get('sala_mute', '0') === '1') { audio.setMuted(true); $('btnMute').textContent = 'Som: desligado'; }
 document.querySelectorAll('[data-quality]').forEach((b) => b.addEventListener('click', () => applyQuality(b.dataset.quality)));
+{ const bl = document.getElementById('btnLeve'); if (bl) bl.addEventListener('click', () => setLeve(!leve)); }
 document.addEventListener('visibilitychange', () => { if (document.hidden && state.started && !state.paused) setPaused(true); });
 // no celular, o primeiro toque ja entra em tela cheia e trava deitado (o app instalado ja abre deitado pelo manifesto)
 document.addEventListener('pointerdown', () => { if (DEVICE_MOBILE && fsPref) enterFullscreen(); }, { once: true });
@@ -1534,12 +1553,14 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v5';
+    if (el) el.textContent = fps + ' fps · v6';
     if (state.started && !state.paused) {
       adaptT += 1;
       const prev = resScale;
       if (fps < 40 && resScale > 0.7 && adaptT >= 2) { resScaleCap = resScale - 0.05; resScale = Math.max(0.7, resScale - 0.1); adaptT = 0; }
       else if (fps >= 58 && resScale < Math.min(1, resScaleCap) && adaptT >= 12) { resScale = Math.min(Math.min(1, resScaleCap), resScale + 0.05); adaptT = 0; }   // sobe devagar e nunca volta ao nivel que travou
+      // so PERGUNTA (uma vez por sessao); nunca liga o modo leve sozinho
+      if (fps < 24) { lowFps += 1; if (lowFps >= 8 && !leve && !askedLite) { askedLite = true; lowFps = 0; askLite(); } } else lowFps = 0;
       if (resScale !== prev) applyRes();
     }
     fpsAcc = 0; fpsN = 0;
@@ -1548,7 +1569,7 @@ function frame(now) {
 
 // ------------------------------------------------------------------ inicializacao
 function init() {
-  applyQuality(qualityName);
+  applyQuality(qualityName, true);
   loadout.reset();
   syncWeaponVisual();
   // pose inicial para o primeiro quadro ja ter personagem e arma no lugar

@@ -1,5 +1,5 @@
 // Service worker: necessario para instalar o app. Rede primeiro; guarda copia para abrir mesmo com rede ruim.
-const CACHE = 'duskfall-v5';
+const CACHE = 'duskfall-v6';
 self.addEventListener('install', (e) => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', './index.html', './manifest.webmanifest', './icons/icon-192.png'])).catch(() => {}));

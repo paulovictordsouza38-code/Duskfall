@@ -99,6 +99,13 @@ export class GameAudio {
     o.stop(t + dur + 0.05);
   }
 
+  /** Tiro distante (bots/outros): um unico estouro curto, sem reverb. Bem mais barato. */
+  shotLite(kind) {
+    if (!this.ready) return;
+    const heavy = kind === 'rifle' || kind === 'sniper';
+    this._burst({ dur: heavy ? 0.12 : 0.08, gain: 0.22, hp: heavy ? 200 : 600, lp: heavy ? 5000 : 6500, rev: 0 });
+  }
+
   shot(id, kind = 'pistol') {
     if (!this.ready) return;
     const r = 0.92 + Math.random() * 0.16;

@@ -6,7 +6,7 @@ export const EP_ASSIST_HP = 70;          // abaixo disso, o EP passa a reabastec
 export const EP_ASSIST_TO = 100;         // ... ate a vida chegar a este valor
 export const EP_ASSIST_RATE = 16;        // pontos por segundo
 export const BANDAGE_EP = 50;            // 2 ataduras enchem o EP
-export const USE_TIME = Object.freeze({ bandage: 1.4, medkit: 3.2 });
+export const USE_TIME = Object.freeze({ bandage: 1.4, medkit: 5.0 });
 export const ITEM_CAP = Object.freeze({ bandage: 10, medkit: 4, frag: 5, gel: 4 });
 export const ITEM_NAMES = Object.freeze({ bandage: 'Atadura', medkit: 'Kit médico', frag: 'Granada', gel: 'Granada de gel' });
 

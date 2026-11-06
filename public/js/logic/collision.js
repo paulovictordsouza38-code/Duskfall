@@ -147,7 +147,13 @@ export function rayShot(ox, oy, oz, dx, dy, dz, maxDist, boxes) {
   for (let i = 0; i < boxes.length; i++) {
     const b = boxes[i];
     if (b.noShoot) continue;
-    const t = rayAABB(ox, oy, oz, dx, dy, dz, b);
+    let t = rayAABB(ox, oy, oz, dx, dy, dz, b);
+    // origem DENTRO do colisor (cano encostado/enfiado na parede): a bala nao sai, bate na hora
+    if (t <= 0.001 && oy >= b.minY && oy <= b.maxY) {
+      const inside = b.circle ? ((ox - b.x) * (ox - b.x) + (oz - b.z) * (oz - b.z) < b.r * b.r)
+        : (ox > b.minX && ox < b.maxX && oz > b.minZ && oz < b.maxZ);
+      if (inside) t = 0.002;
+    }
     if (t < best && t > 0.001) { best = t; hit = b; }
   }
   return best <= maxDist ? { t: best, box: hit } : null;

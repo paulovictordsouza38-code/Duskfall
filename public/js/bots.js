@@ -11,6 +11,8 @@ const _e = new THREE.Vector3();
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const wrap = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
 
+const BOT_NAMES = ['Rocha', 'Fantasma', 'Lobo', 'Corvo', 'Sombra', 'Falcão', 'Trovão', 'Víbora', 'Ghost', 'Alpha', 'Bravo', 'Delta'];
+
 export class BotManager {
   /** @param {object} o { scene, colliders, makeRig, waypoints:[{x,z}], rand, count } */
   constructor(o) {
@@ -30,7 +32,7 @@ export class BotManager {
     this._built = true;
     for (let i = 0; i < this.o.count; i++) {
       const a = new Actor({ makeRig: this.o.makeRig, shadows: false });
-      a.setRole('enemy');
+      a.setRole('enemy', BOT_NAMES[i % BOT_NAMES.length]);
       a.id = 'bot' + i;
       this.root.add(a.root);
       a.ai = { goal: null, cool: 0, burst: 0, rest: 0, seenT: -9, strafe: 1, strafeT: 0, stuckT: 0, lx: 0, lz: 0, check: i * 0.07, respawn: 0, speed: 0 };

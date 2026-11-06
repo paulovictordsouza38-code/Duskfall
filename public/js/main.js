@@ -31,6 +31,9 @@ const PLAYER_RADIUS = 0.34;
 const WALK = 2.6;
 const RUN = 5.2;
 const AIM_WALK = 1.8;
+const NADE_SPEED = 24;       // alcance da granada (era 15)
+const DAMAGE_TAKEN = 0.55;   // vida dura mais: dano recebido x0.55
+const PRONE_WALK = 1.1, PRONE_AIM = 0.8;
 const ADS_BASE_FOV = 52;
 // campo de visao vertical com a mira: 52 graus nas miras de ferro; luneta 2x/4x/8x divide a tangente
 const adsFov = (zoom) => (2 * Math.atan(Math.tan((ADS_BASE_FOV * Math.PI) / 360) / zoom) * 180) / Math.PI;
@@ -207,7 +210,7 @@ const audio = new GameAudio();
 const input = new Input(canvas, {
   joystick: $('joystick'), joyKnob: $('joyKnob'), lookZone: $('lookZone'),
   btnFire: $('btnFire'), btnFire2: $('btnFire2'), btnAim: $('btnAim'), btnReload: $('btnReload'), btnSwap: $('btnSwap'),
-  btnCrouch: $('btnCrouch'), btnRun: $('btnRun'), btnJump: $('btnJump'),
+  btnCrouch: $('btnCrouch'), btnProne: $('btnProne'), btnRun: $('btnRun'), btnJump: $('btnJump'),
   btnHeal: $('btnHeal'), btnFrag: $('btnFrag'), btnGel: $('btnGel'), btnPack: $('btnPack'),
 });
 
@@ -302,14 +305,14 @@ function onIce(col) {
 }
 function hurtPlayer(dmg) {
   if (match.dead || !match.active || dmg <= 0) return;
-  const died = vitals.damage(dmg);
+  const died = vitals.damage(dmg * DAMAGE_TAKEN);
   audio.hurt();
   hurtT = 0.6;
   if (died) killPlayer();
 }
 function killPlayer() {
   match.dead = true; match.deadT = 4; match.deaths++;
-  using = null; state.gelMode = false; input.fire = false; input.aim = false;
+  using = null; { const ur = $('useRing'); if (ur) ur.className = ''; } state.gelMode = false; input.fire = false; input.aim = false;
   $('dead').classList.add('on');
   if (online.active) net.send({ t: 'dead', by: lastAttacker });
 }
@@ -328,7 +331,7 @@ const view = { yaw: SPAWN.yaw, pitch: 0.0, recoil: 0 };
 const state = {
   running: false, paused: true, started: false,
   aimBlend: 0, slide: 0, recoilVis: 0, camDist: 2.6, fireHold: 0, wallPull: 0,
-  crouch: false, crouchK: 0, alignK: 1, grounded: true, airK: 0,
+  crouch: false, crouchK: 0, prone: false, proneK: 0, handKind: 'gel', alignK: 1, grounded: true, airK: 0,
   time: 0, lastStep: 0,
   armed: true, startArmed: true, outdoor: 0, gelMode: false,
 };
@@ -617,7 +620,7 @@ function restart() {
   player.hipsYaw = SPAWN.yaw;
   view.yaw = SPAWN.yaw; view.pitch = 0; view.recoil = 0;
   state.aimBlend = 0; state.slide = 0; state.recoilVis = 0;
-  state.crouch = false; state.crouchK = 0; state.alignK = 1; state.grounded = true; state.airK = 0; input.runToggle = false; $('btnRun').classList.remove('on');
+  state.crouch = false; state.crouchK = 0; state.prone = false; state.proneK = 0; state.alignK = 1; state.grounded = true; state.airK = 0; input.runToggle = false; $('btnRun').classList.remove('on');
   audio.restart();
   toast('PARTIDA REINICIADA');
   updateHud();
@@ -911,7 +914,7 @@ net.on.msg = (m) => {
       const dd = Math.hypot(m.d.a[0] - player.x, m.d.a[2] - player.z);
       if (dd < 45 && WEAPONS[m.d.w]) farShot(m.d.w);
     } else if (m.k === 'gren' && m.d) {
-      explosives.throwGrenade(m.d.kind, new THREE.Vector3(...m.d.o), new THREE.Vector3(...m.d.v), m.from, m.d.kind === 'gel' ? 13 : 15);
+      explosives.throwGrenade(m.d.kind, new THREE.Vector3(...m.d.o), new THREE.Vector3(...m.d.v), m.from, Math.min(30, Number(m.d.s) || (m.d.kind === 'gel' ? 13 : 15)));
     } else if (m.k === 'ice' && m.d) {
       explosives.placeIce(m.d.x, m.d.z, m.d.dx, m.d.dz, m.from);
     } else if (m.k === 'ign' && m.d) {
@@ -1014,6 +1017,7 @@ function startUse(kind) {
   if (kind === 'medkit' && !vitals.needsMedkit) { toast('VIDA JÁ ESTÁ CHEIA'); return; }
   pack.take(kind);
   using = { kind, t: 0, dur: USE_TIME[kind] };
+  if (kind === 'medkit') toast('USANDO KIT MÉDICO…');
 }
 function healAction() {
   if (vitals.needsMedkit && pack.n.medkit > 0 && vitals.hp < HP_MAX * 0.75) startUse('medkit');
@@ -1028,8 +1032,9 @@ function throwNade(kind) {
   character.eyePosition(_eye, view.yaw);
   const d = forwardFrom(view.yaw, view.pitch + 0.12, new THREE.Vector3());
   const o = _eye.clone().addScaledVector(d, 0.6);
-  explosives.throwGrenade(kind, o, d, 'player', kind === 'gel' ? 13 : 15);
-  if (online.active) net.send({ t: 'ev', k: 'gren', d: { kind, o: [o.x, o.y, o.z], v: [d.x, d.y, d.z] } });
+  const spd = kind === 'gel' ? 13 : NADE_SPEED;
+  explosives.throwGrenade(kind, o, d, 'player', spd);
+  if (online.active) net.send({ t: 'ev', k: 'gren', d: { kind, o: [o.x, o.y, o.z], v: [d.x, d.y, d.z], s: spd } });
 }
 // ---- granada de gelo: segura na mao, mostra onde vai ficar e cria a parede NA HORA ao soltar
 const ICE_S = EXPLOSIVE_STATS.ICE;
@@ -1044,16 +1049,58 @@ const gelBoxes = [[ICE_S.thick, ICE_S.len], [ICE_S.len, ICE_S.thick]].map(([w, d
   scene.add(m);
   return m;
 });
-function toggleGel() {
+function toggleHand(kind) {
   if (match.dead) return;
-  if (state.gelMode) { state.gelMode = false; return; }
-  if (pack.n.gel < 1) { toast('SEM GRANADA DE GELO'); return; }
+  if (state.gelMode && state.handKind === kind) { state.gelMode = false; return; }
+  if (pack.n[kind] < 1) { toast(kind === 'gel' ? 'SEM GRANADA DE GELO' : 'SEM GRANADA'); return; }
+  state.handKind = kind;
   state.gelMode = true;
   input.fire = false;
-  toast('GELO: MIRE E TOQUE EM FOGO');
+  toast(kind === 'gel' ? 'GELO: MIRE E TOQUE EM FOGO' : 'GRANADA: MIRE E TOQUE EM FOGO');
+}
+function toggleGel() { toggleHand('gel'); }
+// ---- granada: linha pontilhada mostra a trajetoria ate onde ela cai (mesma fisica do arremesso)
+const NP = 80;
+const trajPos = new Float32Array(NP * 3);
+const trajGeo = new THREE.BufferGeometry();
+trajGeo.setAttribute('position', new THREE.BufferAttribute(trajPos, 3));
+const trajPts = new THREE.Points(trajGeo, new THREE.PointsMaterial({ color: 0xffe27a, size: 0.17, sizeAttenuation: true, depthTest: false, transparent: true, opacity: 0.95, toneMapped: false }));
+trajPts.frustumCulled = false; trajPts.visible = false; trajPts.renderOrder = 16;
+scene.add(trajPts);
+const trajRing = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.65, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.9, depthTest: false, side: THREE.DoubleSide, toneMapped: false }));
+const trajBlast = new THREE.Mesh(new THREE.RingGeometry(6.85, 7, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff7a4a, transparent: true, opacity: 0.45, depthTest: false, side: THREE.DoubleSide, toneMapped: false }));
+trajRing.visible = false; trajBlast.visible = false; trajRing.renderOrder = 16; trajBlast.renderOrder = 16;
+scene.add(trajRing); scene.add(trajBlast);
+function updateNadePreview(on) {
+  trajPts.visible = trajRing.visible = trajBlast.visible = on;
+  if (!on) return;
+  character.eyePosition(_eye, view.yaw);
+  const d = forwardFrom(view.yaw, view.pitch + 0.12, _v1);
+  let px = _eye.x + d.x * 0.6, py = _eye.y + d.y * 0.6, pz = _eye.z + d.z * 0.6;
+  let vx = d.x * NADE_SPEED, vy = d.y * NADE_SPEED + 2.6, vz = d.z * NADE_SPEED;
+  const dt = 1 / 30;
+  let n = 0;
+  trajPos[0] = px; trajPos[1] = py; trajPos[2] = pz; n = 1;
+  for (let i = 0; i < 70 && n < NP; i++) {
+    vy -= 14 * dt;
+    const sx = vx * dt, sy = vy * dt, sz = vz * dt;
+    const len = Math.hypot(sx, sy, sz) || 1e-6;
+    const tb = rayBoxes(px, py, pz, sx / len, sy / len, sz / len, len + 0.05, world.colliders);
+    if (tb !== Infinity) { const t = Math.max(0, tb - 0.05); px += sx / len * t; py += sy / len * t; pz += sz / len * t; trajPos[n * 3] = px; trajPos[n * 3 + 1] = py; trajPos[n * 3 + 2] = pz; n++; break; }
+    px += sx; py += sy; pz += sz;
+    const gy = groundHeight(px, pz, py + 0.4, world.colliders);
+    if (py < gy + 0.08) { py = gy + 0.08; trajPos[n * 3] = px; trajPos[n * 3 + 1] = py; trajPos[n * 3 + 2] = pz; n++; break; }
+    trajPos[n * 3] = px; trajPos[n * 3 + 1] = py; trajPos[n * 3 + 2] = pz; n++;
+  }
+  trajGeo.setDrawRange(0, n);
+  trajGeo.attributes.position.needsUpdate = true;
+  const gy2 = groundHeight(px, pz, py + 0.4, world.colliders);
+  trajRing.position.set(px, Math.max(gy2, py - 0.05) + 0.06, pz);
+  trajBlast.position.copy(trajRing.position);
 }
 function updateGelPreview() {
-  const on = state.gelMode && !match.dead;
+  const on = state.gelMode && !match.dead && state.handKind === 'gel';
+  updateNadePreview(state.gelMode && !match.dead && state.handKind === 'frag');
   if (!on) { gelBoxes[0].visible = false; gelBoxes[1].visible = false; return; }
   character.eyePosition(_eye, view.yaw);
   const f = forwardFrom(view.yaw, view.pitch, _v1);
@@ -1073,7 +1120,14 @@ function updateGelPreview() {
   m.position.set(gelPrev.x, gelPrev.y + ICE_S.h / 2, gelPrev.z);
 }
 function placeGel() {
-  if (!state.gelMode || pack.n.gel < 1) return;
+  if (!state.gelMode) return;
+  if (state.handKind === 'frag') {                       // botao de atirar = soltar a granada
+    if (pack.n.frag < 1) { state.gelMode = false; return; }
+    throwNade('frag');
+    if (pack.n.frag < 1) state.gelMode = false;
+    return;
+  }
+  if (pack.n.gel < 1) return;
   pack.take('gel');
   explosives.placeIce(gelPrev.x, gelPrev.z, gelPrev.dx, gelPrev.dz, 'player');
   if (online.active) net.send({ t: 'ev', k: 'ice', d: { x: gelPrev.x, z: gelPrev.z, dx: gelPrev.dx, dz: gelPrev.dz } });
@@ -1177,13 +1231,18 @@ function update(dt) {
   vitals.update(dt);
   if (using) {
     using.t += dt;
+    {
+      const ur = $('useRing');
+      if (ur) { ur.className = 'on ' + (using.kind === 'medkit' ? 'k' : 'b'); $('useArc').style.strokeDashoffset = String(213.6 * (1 - Math.min(1, using.t / using.dur))); }
+    }
     if (using.t >= using.dur) {
       if (using.kind === 'bandage') { vitals.addBandage(); toast('+ EP'); } else { vitals.addMedkit(); toast('VIDA RESTAURADA'); }
       audio.heal();
       using = null;
+      { const ur = $('useRing'); if (ur) ur.className = ''; }
     }
   }
-  if (online.active) { online.update(dt); online.sendState(dt, player, view, state.armed ? loadout.currentId : null, state.crouchK, !dead); }
+  if (online.active) { online.update(dt); online.sendState(dt, player, view, state.armed ? loadout.currentId : null, Math.max(state.crouchK, state.proneK), !dead); }
   explosives.update(dt);
   bots.update(dt, {
     player: { x: player.x, y: player.y, z: player.z, alive: !dead, speed: player.speed }, time: state.time,
@@ -1201,11 +1260,12 @@ function update(dt) {
       else if (a === 'reload') { state.gelMode = false; if (state.armed && w.startReload()) audio.reload(loadout.currentId, w.cfg.reloadTime); }
       else if (a === 'swap') { state.gelMode = false; cycleWeapon(); }
       else if (a === 'hands') { if (state.armed) holster(); else switchWeapon(loadout.index); }
-      else if (a === 'crouch') { state.crouch = !state.crouch; if (state.crouch) { input.runToggle = false; $('btnRun').classList.remove('on'); } }
-      else if (a === 'jump') { if (state.grounded) { player.vy = 4.9; state.grounded = false; state.crouch = false; audio.jump(); } }
+      else if (a === 'prone') { state.prone = !state.prone; if (state.prone) { state.crouch = false; input.runToggle = false; $('btnRun').classList.remove('on'); } }
+      else if (a === 'crouch') { state.prone = false; state.crouch = !state.crouch; if (state.crouch) { input.runToggle = false; $('btnRun').classList.remove('on'); } }
+      else if (a === 'jump') { if (state.prone) state.prone = false; else if (state.grounded) { player.vy = 4.9; state.grounded = false; state.crouch = false; audio.jump(); } }
       else if (/^w[1-8]$/.test(a)) { state.gelMode = false; switchWeapon(Number(a[1]) - 1); }
       else if (a === 'heal') healAction();
-      else if (a === 'frag') throwNade('frag');
+      else if (a === 'frag') toggleHand('frag');
       else if (a === 'gel') toggleGel();
       else if (a === 'pack') openPack();
     }
@@ -1267,8 +1327,10 @@ function update(dt) {
   }
   const sprinting = input.sprint && !dead && !using && !aiming && !w.reloading && _mv.y > 0.3 && Math.abs(_mv.x) < _mv.y * 1.2; // corre so para frente
   if (sprinting && state.crouch) state.crouch = false;   // correr levanta o personagem
+  if (sprinting && state.prone) state.prone = false;
   state.crouchK += ((state.crouch ? 1 : 0) - state.crouchK) * Math.min(1, 12 * dt);
-  const maxSpeed = state.crouch ? (aiming ? 1.4 : 2.0) : aiming ? AIM_WALK : sprinting ? RUN : WALK;
+  state.proneK += ((state.prone ? 1 : 0) - state.proneK) * Math.min(1, 9 * dt);
+  const maxSpeed = state.prone ? (aiming ? PRONE_AIM : PRONE_WALK) : state.crouch ? (aiming ? 1.4 : 2.0) : aiming ? AIM_WALK : sprinting ? RUN : WALK;
   const mag = Math.hypot(_mv.x, _mv.y);
   _fwd.set(-Math.sin(view.yaw), 0, -Math.cos(view.yaw));
   _rgt.set(Math.cos(view.yaw), 0, -Math.sin(view.yaw));
@@ -1408,12 +1470,16 @@ function update(dt) {
   character.update(dt, {
     speed: player.speed, lx: localRight, lz: localFwd, hipsYaw: player.hipsYaw,
     aimYaw: wrapAngle(player.hipsYaw + wrapAngle(view.yaw - player.hipsYaw) * state.alignK), aimPitch: aimPitch * state.alignK,
-    crouch: state.crouchK, air: state.airK,
+    crouch: state.crouchK * (1 - state.proneK), air: state.airK,
     aimBlend: state.aimBlend, rig: state.armed && !state.gelMode ? rig : null,
     draw: w.cfg.drawTime > 0 ? 1 - w.drawT / w.cfg.drawTime : 1,
     reload: w.reloading ? w.reloadProgress : -1,
     recoil: state.recoilVis, slide: slideShown, wallPull: state.wallPull,
   });
+  // deitado (posicao de atirador de elite): o corpo deita para a frente
+  character.proneK = state.proneK;
+  character.root.rotation.order = 'YXZ';
+  character.root.rotation.x = -1.45 * state.proneK;
   if (character.stepEvent !== state.lastStep) {
     state.lastStep = character.stepEvent;
     audio.step(player.speed > 3.2);
@@ -1458,7 +1524,9 @@ function update(dt) {
   if (hitT > 0) { hitT -= dt; if (hitT <= 0) hud.hit.classList.remove('on'); }
   hud.cross.classList.toggle('ads', state.aimBlend > 0.5);
   $('btnAim').classList.toggle('down', input.aim);
-  setClass('bgel', $('btnGel'), 'down', state.gelMode);
+  setClass('bgel', $('btnGel'), 'down', state.gelMode && state.handKind === 'gel');
+  setClass('bfragb', $('btnFrag'), 'down', state.gelMode && state.handKind === 'frag');
+  setClass('bprone', $('btnProne'), 'on', state.prone);
   hud.cross.style.opacity = String(showScope ? 0 : 1 - state.aimBlend * 0.4);
   updateHud();
   updateCombatHud();
@@ -1468,7 +1536,7 @@ function updateCamera(dt, pitch) {
   const yaw = view.yaw;
   _rgt.set(Math.cos(yaw), 0, -Math.sin(yaw));
   forwardFrom(yaw, pitch, _fwd);
-  const base = _v1.set(player.x, player.y + 1.52 - 0.5 * state.crouchK, player.z);
+  const base = _v1.set(player.x, player.y + 1.52 - 0.5 * state.crouchK - 1.0 * state.proneK, player.z);
   // sobre o ombro direito; se houver parede/caixa ao lado, o afastamento lateral diminui
   const side = rayBoxes(base.x, base.y, base.z, _rgt.x, 0, _rgt.z, 0.55, world.colliders);
   const off = (side === Infinity ? 0.42 : clamp(side - 0.12, 0, 0.42)) * state.alignK;
@@ -1553,7 +1621,7 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v6';
+    if (el) el.textContent = fps + ' fps · v7';
     if (state.started && !state.paused) {
       adaptT += 1;
       const prev = resScale;

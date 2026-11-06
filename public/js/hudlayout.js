@@ -1,9 +1,9 @@
 // Personalizacao do HUD: o jogador arrasta cada botao/painel e ajusta o tamanho.
 // As posicoes ficam salvas no aparelho (localStorage) como fracao da tela, entao valem em qualquer resolucao.
 const KEY = 'sala_hud_v2';
-export const HUD_IDS = ['joystick', 'btnFire', 'btnFire2', 'btnAim', 'btnReload', 'btnSwap', 'btnCrouch', 'btnRun', 'btnJump', 'itemBtns', 'vitals', 'stats', 'ammo', 'topbtns'];
+export const HUD_IDS = ['joystick', 'btnFire', 'btnFire2', 'btnAim', 'btnReload', 'btnSwap', 'btnCrouch', 'btnProne', 'btnRun', 'btnJump', 'itemBtns', 'vitals', 'stats', 'ammo', 'topbtns'];
 const NAMES = {
-  joystick: 'Joystick', btnFire: 'Fogo', btnFire2: 'Fogo (esquerda)', btnCrouch: 'Agachar', btnJump: 'Pular', btnRun: 'Correr', btnAim: 'Mirar', btnReload: 'Recarga', btnSwap: 'Trocar arma',
+  joystick: 'Joystick', btnFire: 'Fogo', btnFire2: 'Fogo (esquerda)', btnCrouch: 'Agachar', btnProne: 'Deitar', btnJump: 'Pular', btnRun: 'Correr', btnAim: 'Mirar', btnReload: 'Recarga', btnSwap: 'Trocar arma',
   itemBtns: 'Itens (curar/granadas/mochila)', vitals: 'Vida HP/EP', stats: 'Pontuação', ammo: 'Munição', topbtns: 'Pausar/Reiniciar',
 };
 

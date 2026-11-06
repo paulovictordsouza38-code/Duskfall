@@ -91,6 +91,7 @@ export class Input {
       else if (code === 'KeyP') this.actions.push('pause');
       else if (code === 'KeyT') this.actions.push('restart');
       else if (code === 'KeyC') this.actions.push('crouch');
+      else if (code === 'KeyZ') this.actions.push('prone');
       else if (code === 'KeyF') this.actions.push('heal');
       else if (code === 'KeyG') this.actions.push('frag');
       else if (code === 'KeyV') this.actions.push('gel');
@@ -211,6 +212,7 @@ export class Input {
     if (u.btnFire2) hold(u.btnFire2, () => { this.fire = true; this.firePressed = true; }, () => { this.fire = false; }, true);
     if (u.btnJump) hold(u.btnJump, () => this.actions.push('jump'), () => {});
     if (u.btnCrouch) hold(u.btnCrouch, () => this.actions.push('crouch'), () => {});
+    if (u.btnProne) hold(u.btnProne, () => this.actions.push('prone'), () => {});
     if (u.btnRun) {
       hold(u.btnRun, () => { this.runToggle = !this.runToggle; u.btnRun.classList.toggle('on', this.runToggle); }, () => {});
     }

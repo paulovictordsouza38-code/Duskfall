@@ -3,8 +3,9 @@ import * as THREE from 'three';
 import { SoldadoSkin } from './soldado.js';
 
 let _tagCache = new Map();
-function nameTexture(text) {
-  if (_tagCache.has(text)) return _tagCache.get(text);
+function nameTexture(text, color = '#7dffa0') {
+  const key = color + text;
+  if (_tagCache.has(key)) return _tagCache.get(key);
   const c = document.createElement('canvas');
   c.width = 256; c.height = 64;
   const g = c.getContext('2d');
@@ -12,11 +13,11 @@ function nameTexture(text) {
   g.textAlign = 'center'; g.textBaseline = 'middle';
   g.lineWidth = 7; g.strokeStyle = 'rgba(0,0,0,.85)';
   g.strokeText(text, 128, 34);
-  g.fillStyle = '#7dffa0';
+  g.fillStyle = color;
   g.fillText(text, 128, 34);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  _tagCache.set(text, t);
+  _tagCache.set(key, t);
   return t;
 }
 
@@ -58,6 +59,13 @@ export class Actor {
       this.marker = enemyMarker();
       this.marker.position.y = 2.25;
       this.root.add(this.marker);
+      if (name) {                                                    // nome do oponente em cima do personagem
+        this.tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: nameTexture(name, '#ff7a6a'), depthTest: false, transparent: true, toneMapped: false }));
+        this.tag.scale.set(1.6, 0.4, 1);
+        this.tag.position.y = 2.65;
+        this.tag.renderOrder = 20;
+        this.root.add(this.tag);
+      }
     } else {
       this.tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: nameTexture(name || 'Amigo'), depthTest: false, transparent: true, toneMapped: false }));
       this.tag.scale.set(1.6, 0.4, 1);

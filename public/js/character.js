@@ -391,7 +391,8 @@ export class Character {
   eyePosition(out, aimYaw) {
     const r = this.root.position;
     const bob = (this.bones.hips.position.y - HIPS_Y) * 0.5;
-    out.set(r.x - Math.sin(aimYaw) * 0.09, r.y + 1.69 - 0.46 * (this.crouchK || 0) + bob, r.z - Math.cos(aimYaw) * 0.09);
+    const pk = this.proneK || 0;                                    // deitado: olho baixo e adiantado
+    out.set(r.x - Math.sin(aimYaw) * (0.09 - 0.7 * pk), r.y + 1.69 - 0.46 * (this.crouchK || 0) - 1.28 * pk + bob, r.z - Math.cos(aimYaw) * (0.09 - 0.7 * pk));
     return out;
   }
 

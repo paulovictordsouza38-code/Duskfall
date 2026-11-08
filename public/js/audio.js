@@ -1,5 +1,12 @@
 // Audio sintetizado com Web Audio (sem arquivos externos). Sons provisorios:
 // disparo (USP e MP40 diferentes), recarga, clique sem municao, impactos, passos.
+// Sons de tiro REAIS (arquivos na pasta sounds/). Quem nao tiver arquivo continua com o som sintetizado.
+// Chave = id da arma (usp, mp40...) ou tipo (pistol, smg, rifle, sniper). Varios arquivos na lista = o jogo alterna entre eles.
+export const SHOT_FILES = {
+  pistol: ['som_pistola.mp3'],
+};
+const SHOT_GAIN = { pistol: 0.8, smg: 0.8, rifle: 0.9, sniper: 1 };
+
 export class GameAudio {
   constructor() {
     this.ctx = null;
@@ -8,6 +15,7 @@ export class GameAudio {
     this.noiseBuf = null;
     this.muted = false;
     this.volume = 0.7;
+    this.samples = {};
   }
 
   /** Precisa ser chamado dentro de um gesto do usuario (toque/clique). */
@@ -45,7 +53,36 @@ export class GameAudio {
       const nd = this.noiseBuf.getChannelData(0);
       for (let i = 0; i < nl; i++) nd[i] = Math.random() * 2 - 1;
     }
+    if (!this._loading) { this._loading = true; this._loadSamples(); }
     if (this.ctx.state === 'suspended') this.ctx.resume();
+    return true;
+  }
+
+  _loadSamples() {
+    for (const key of Object.keys(SHOT_FILES)) {
+      this.samples[key] = [];
+      for (const url of SHOT_FILES[key]) {
+        fetch(url).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('sem arquivo'))))
+          .then((ab) => new Promise((ok, no) => this.ctx.decodeAudioData(ab, ok, no)))
+          .then((buf) => { this.samples[key].push(buf); })
+          .catch(() => { /* sem arquivo ou formato nao suportado: fica o som sintetizado */ });
+      }
+    }
+  }
+
+  /** Toca um arquivo de tiro (id da arma ou tipo). Retorna false se nao tiver arquivo carregado. */
+  _sample(id, kind, gain, reverb) {
+    const list = (this.samples[id] && this.samples[id].length ? this.samples[id] : this.samples[kind]);
+    if (!list || !list.length) return false;
+    const ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = list[(Math.random() * list.length) | 0];
+    src.playbackRate.value = 0.96 + Math.random() * 0.08;        // variacao leve para nao soar repetido
+    const g = ctx.createGain();
+    g.gain.value = gain * (SHOT_GAIN[kind] || 0.8);
+    src.connect(g);
+    this._out(g, reverb);
+    src.start();
     return true;
   }
 
@@ -102,12 +139,14 @@ export class GameAudio {
   /** Tiro distante (bots/outros): um unico estouro curto, sem reverb. Bem mais barato. */
   shotLite(kind) {
     if (!this.ready) return;
+    if (this._sample(null, kind, 0.35, 0)) return;
     const heavy = kind === 'rifle' || kind === 'sniper';
     this._burst({ dur: heavy ? 0.12 : 0.08, gain: 0.22, hp: heavy ? 200 : 600, lp: heavy ? 5000 : 6500, rev: 0 });
   }
 
   shot(id, kind = 'pistol') {
     if (!this.ready) return;
+    if (this._sample(id, kind, 1, 0.3)) return;
     const r = 0.92 + Math.random() * 0.16;
     if (id === 'usp') {
       this._burst({ dur: 0.16, gain: 0.55, hp: 500, lp: 7000 * r, rev: 0.5 });

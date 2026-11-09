@@ -4,10 +4,11 @@
 // Chave = id da arma (usp, mp40...) ou tipo (pistol, smg, rifle, sniper). Varios arquivos na lista = o jogo alterna entre eles.
 export const SHOT_FILES = {
   pistol: ['som_pistola.mp3'],
+  rifle: ['som_fuzil.mp3'],      // XM8, FAMAS e SCAR
 };
 // Outros sons com arquivo (tocados em eventos): dano ao jogador.
 export const EVENT_FILES = { hurt: ['som_dano.mp3'] };
-const SHOT_GAIN = { pistol: 0.8, smg: 0.8, rifle: 0.9, sniper: 1 };
+const SHOT_GAIN = { pistol: 0.8, smg: 0.8, rifle: 0.75, sniper: 1 };
 
 export class GameAudio {
   constructor() {

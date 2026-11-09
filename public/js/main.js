@@ -1621,7 +1621,7 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v11';
+    if (el) el.textContent = fps + ' fps · v12';
     if (state.started && !state.paused) {
       adaptT += 1;
       const prev = resScale;

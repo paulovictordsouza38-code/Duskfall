@@ -5,7 +5,7 @@
 export const SHOT_FILES = {
   pistol: ['som_pistola.mp3'],
   rifle: ['som_fuzil.mp3'],      // XM8, FAMAS e SCAR
-  smg: ['som_smg1.mp3', 'som_smg2.mp3', 'som_smg3.mp3'],   // MP40 e MP5 (3 tiros diferentes, alternando)
+  smg: ['som_smg1.wav', 'som_smg2.wav', 'som_smg3.wav'],   // MP40 e MP5 (3 tiros diferentes, alternando)
   sniper: ['som_sniper.mp3'],    // AWM
 };
 // Outros sons com arquivo (tocados em eventos): dano ao jogador.

@@ -5,9 +5,11 @@
 export const SHOT_FILES = {
   pistol: ['som_pistola.mp3'],
   rifle: ['som_fuzil.mp3'],      // XM8, FAMAS e SCAR
+  smg: ['som_smg1.mp3', 'som_smg2.mp3', 'som_smg3.mp3'],   // MP40 e MP5 (3 tiros diferentes, alternando)
+  sniper: ['som_sniper.mp3'],    // AWM
 };
 // Outros sons com arquivo (tocados em eventos): dano ao jogador.
-export const EVENT_FILES = { hurt: ['som_dano.mp3'] };
+export const EVENT_FILES = { hurt: ['som_dano.mp3'], explosion: ['som_explosao.mp3'] };
 const SHOT_GAIN = { pistol: 0.8, smg: 0.8, rifle: 0.75, sniper: 1 };
 
 export class GameAudio {
@@ -175,6 +177,17 @@ export class GameAudio {
 
   explosion() {
     if (!this.ready) return;
+    if (this.samples.explosion && this.samples.explosion.length) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.samples.explosion[0];
+      src.playbackRate.value = 0.97 + Math.random() * 0.06;
+      const g = this.ctx.createGain();
+      g.gain.value = 1;
+      src.connect(g);
+      this._out(g, 0.15);
+      src.start();
+      return;
+    }
     this._burst({ dur: 0.9, gain: 0.95, hp: 40, lp: 2600, rev: 0.9 });
     this._burst({ dur: 0.05, gain: 0.7, hp: 1500, lp: 9000, rev: 0.3 });
     this._tone({ f0: 70, f1: 22, dur: 0.7, gain: 1.0, rev: 0.8 });

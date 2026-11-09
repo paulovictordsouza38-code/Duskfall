@@ -21,7 +21,7 @@ import { Vitals, Backpack, shotDamage, HP_MAX, EP_MAX, USE_TIME, ITEM_CAP, ITEM_
 import { buildScenery } from './scenery.js';
 import { Loadout, WEAPONS, WEAPON_IDS, zoomFor } from './logic/weapons.js';
 import { Stats } from './logic/scoring.js';
-import { resolveMovement, rayBoxes, rayShot, groundHeight, makeBox } from './logic/collision.js';
+import { resolveMovement, rayBoxes, rayShot, groundHeight, makeBox, makeCircle } from './logic/collision.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = THREE.MathUtils.clamp;
@@ -164,6 +164,7 @@ function applyQuality(name, keepLeve) {
   world.setShadowQuality(sh, q.shadowSize);
   world.setLightCount(leve ? 1 : q.lights);
   fx.setLite(leve);
+  try { explosives.smokeCount = leve ? 14 : 24; } catch (e) { /* ainda nao criado */ }
   if (character.skin) character.skin.setShadows(sh > 1);
   scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
   resize();
@@ -272,6 +273,66 @@ for (const b of world.barrels) {
 }
 const online = new Online({ net: null, scene, makeRig });
 const wps = pickups.items.map((it) => ({ x: it.x, z: it.z }));
+
+// ---- barris de FUMACA (azuis, com emblema radioativo): espalhados em lugares livres perto dos pontos de itens (mesma posicao em todos os jogadores)
+function makeToxicTex() {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#1d5fc4'; g.fillRect(0, 0, 512, 256);
+  g.fillStyle = '#164a9c'; g.fillRect(0, 0, 512, 22); g.fillRect(0, 234, 512, 22);
+  g.fillStyle = '#ffd21a'; g.fillRect(0, 22, 512, 6); g.fillRect(0, 228, 512, 6);
+  for (const cx of [64, 192, 320, 448]) {
+    g.fillStyle = '#ffd21a'; g.beginPath(); g.arc(cx, 128, 56, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#111'; g.beginPath(); g.arc(cx, 128, 50, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#ffd21a'; g.beginPath(); g.arc(cx, 128, 47, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#111';
+    for (let k = 0; k < 3; k++) {                       // simbolo radioativo: 3 pas + miolo
+      const a0 = (k * 120 - 90 - 30) * Math.PI / 180, a1 = a0 + Math.PI / 3;
+      g.beginPath(); g.moveTo(cx, 128); g.arc(cx, 128, 40, a0, a1); g.closePath(); g.fill();
+    }
+    g.fillStyle = '#ffd21a'; g.beginPath(); g.arc(cx, 128, 11, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#111'; g.beginPath(); g.arc(cx, 128, 7, 0, Math.PI * 2); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function placeToxicBarrels(count) {
+  const free = (x, z) => {
+    for (const c of world.colliders) {
+      if (c.minY > 1.2 || c.maxY < 0.1) continue;
+      if (x > c.minX - 0.5 && x < c.maxX + 0.5 && z > c.minZ - 0.5 && z < c.maxZ + 0.5) return false;
+    }
+    return true;
+  };
+  const pts = wps.slice().sort((a, b) => (a.x - b.x) || (a.z - b.z));
+  const out = [];
+  const step = Math.max(1, Math.floor(pts.length / (count * 1.5)));
+  for (let i = 3; i < pts.length && out.length < count; i += step) {
+    for (const [dx, dz] of [[1.3, 0], [-1.3, 0], [0, 1.3], [0, -1.3], [2, 1], [-2, -1]]) {
+      const x = pts[i].x + dx, z = pts[i].z + dz;
+      if (!free(x, z)) continue;
+      if (out.some((q) => Math.hypot(q.x - x, q.z - z) < 12)) continue;
+      out.push({ x, z }); break;
+    }
+  }
+  const tex = makeToxicTex();
+  const side = new THREE.MeshStandardMaterial({ map: tex, metalness: 0.35, roughness: 0.5 });
+  const cap = new THREE.MeshStandardMaterial({ color: 0x164a9c, metalness: 0.5, roughness: 0.45 });
+  const geo = new THREE.CylinderGeometry(0.29, 0.29, 0.92, 20);
+  for (const p of out) {
+    const m = new THREE.Mesh(geo, [side, cap, cap]);
+    m.position.set(p.x, 0.46, p.z);
+    m.castShadow = true;
+    scene.add(m);
+    const col = makeCircle(p.x, p.z, 0.3, 0, 0.92);
+    col.noShoot = true;
+    world.colliders.push(col);
+    explosives.addBarrel({ x: p.x, z: p.z, r: 0.3, h: 0.92, col, toxic: true,
+      hide() { m.visible = false; }, show() { m.visible = true; } });
+  }
+}
+placeToxicBarrels(5);
 const bots = new BotManager({ scene, colliders: world.colliders, makeRig, waypoints: wps, count: COARSE ? 5 : 8 });
 
 let lastFarShot = 0;
@@ -1621,7 +1682,7 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v12';
+    if (el) el.textContent = fps + ' fps · v13';
     if (state.started && !state.paused) {
       adaptT += 1;
       const prev = resScale;

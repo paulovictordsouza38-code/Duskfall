@@ -9,7 +9,7 @@ export const SHOT_FILES = {
   sniper: ['som_sniper.mp3'],    // AWM
 };
 // Outros sons com arquivo (tocados em eventos): dano ao jogador.
-export const EVENT_FILES = { hurt: ['som_dano.mp3'], explosion: ['som_explosao.mp3'] };
+export const EVENT_FILES = { hurt: ['som_dano.mp3'], explosion: ['som_explosao.mp3'], barrelhit: ['som_barril.mp3'], toxic: ['som_fumaca.mp3'] };
 const SHOT_GAIN = { pistol: 0.8, smg: 0.8, rifle: 0.75, sniper: 1 };
 
 export class GameAudio {
@@ -173,6 +173,32 @@ export class GameAudio {
       this._tone({ f0: 115 * r, f1: 42, dur: 0.1, gain: 0.6, rev: 0.35 });
       this._tone({ f0: 320, f1: 140, dur: 0.05, gain: 0.12, type: 'square', rev: 0.1 });
     }
+  }
+
+  /** Ricochete de bala no barril (antes de explodir). */
+  barrelHit() {
+    if (!this.ready || !this.samples.barrelhit || !this.samples.barrelhit.length) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.samples.barrelhit[0];
+    src.playbackRate.value = 0.95 + Math.random() * 0.1;
+    const g = this.ctx.createGain();
+    g.gain.value = 0.9;
+    src.connect(g); g.connect(this.master);
+    src.start();
+  }
+
+  /** Explosao do barril de fumaca toxica. */
+  toxicBlast() {
+    if (!this.ready) return;
+    if (!this.samples.toxic || !this.samples.toxic.length) { this.explosion(); return; }
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.samples.toxic[0];
+    src.playbackRate.value = 0.97 + Math.random() * 0.06;
+    const g = this.ctx.createGain();
+    g.gain.value = 1;
+    src.connect(g);
+    this._out(g, 0.15);
+    src.start();
   }
 
   explosion() {

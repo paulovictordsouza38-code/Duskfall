@@ -5,6 +5,8 @@
 export const SHOT_FILES = {
   pistol: ['som_pistola.mp3'],
 };
+// Outros sons com arquivo (tocados em eventos): dano ao jogador.
+export const EVENT_FILES = { hurt: ['som_dano.mp3'] };
 const SHOT_GAIN = { pistol: 0.8, smg: 0.8, rifle: 0.9, sniper: 1 };
 
 export class GameAudio {
@@ -59,9 +61,10 @@ export class GameAudio {
   }
 
   _loadSamples() {
-    for (const key of Object.keys(SHOT_FILES)) {
+    const all = Object.assign({}, SHOT_FILES, EVENT_FILES);
+    for (const key of Object.keys(all)) {
       this.samples[key] = [];
-      for (const url of SHOT_FILES[key]) {
+      for (const url of all[key]) {
         fetch(url).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('sem arquivo'))))
           .then((ab) => new Promise((ok, no) => this.ctx.decodeAudioData(ab, ok, no)))
           .then((buf) => { this.samples[key].push(buf); })
@@ -196,6 +199,18 @@ export class GameAudio {
 
   hurt() {
     if (!this.ready) return;
+    const nowT = this.ctx.currentTime;
+    if (this.samples.hurt && this.samples.hurt.length) {
+      if (nowT - (this._hurtAt || -1) < 0.12) return;      // evita empilhar em rajadas
+      this._hurtAt = nowT;
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.samples.hurt[(Math.random() * this.samples.hurt.length) | 0];
+      const g = this.ctx.createGain();
+      g.gain.value = 1;
+      src.connect(g); g.connect(this.master);
+      src.start();
+      return;
+    }
     this._burst({ dur: 0.08, gain: 0.3, hp: 200, lp: 1200, rev: 0.1 });
     this._tone({ f0: 160, f1: 90, dur: 0.1, gain: 0.25, rev: 0.1 });
   }

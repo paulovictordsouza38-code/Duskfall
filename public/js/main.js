@@ -609,9 +609,9 @@ function shoot() {
     hud.hit.classList.add('on'); hitT = 0.14;
     toast(zone.toUpperCase());
   } else if (special && special.kind === 'barrel') {
-    special.br.barrel.igniter = 'player';
-    explosives.ignite(special.br.barrel);
-    if (online.active) net.send({ t: 'ev', k: 'ign', d: { i: explosives.barrels.indexOf(special.br.barrel) } });
+    const dmB = shotDamage(cfg.dmg, 'corpo');
+    explosives.damageBarrel(special.br.barrel, dmB, 'player');
+    if (online.active) net.send({ t: 'ev', k: 'bdmg', d: { i: explosives.barrels.indexOf(special.br.barrel), dm: dmB } });
     audio.impact('plate');
     toast('BARRIL ACESO — AFASTE-SE!');
   }
@@ -978,6 +978,8 @@ net.on.msg = (m) => {
       explosives.throwGrenade(m.d.kind, new THREE.Vector3(...m.d.o), new THREE.Vector3(...m.d.v), m.from, Math.min(30, Number(m.d.s) || (m.d.kind === 'gel' ? 13 : 15)));
     } else if (m.k === 'ice' && m.d) {
       explosives.placeIce(m.d.x, m.d.z, m.d.dx, m.d.dz, m.from);
+    } else if (m.k === 'bdmg' && m.d) {
+      const b = explosives.barrels[m.d.i]; if (b) explosives.damageBarrel(b, Math.min(200, +m.d.dm || 0), null);
     } else if (m.k === 'ign' && m.d) {
       const b = explosives.barrels[m.d.i]; if (b) explosives.ignite(b);
     }
@@ -1682,7 +1684,7 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v13';
+    if (el) el.textContent = fps + ' fps · v14';
     if (state.started && !state.paused) {
       adaptT += 1;
       const prev = resScale;

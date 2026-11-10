@@ -5,6 +5,7 @@ import { groundHeight, makeBox } from './logic/collision.js';
 
 const FRAG = { radius: 7, max: 150, fuse: 2.4 };
 const BARREL = { radius: 6, max: 120, fuse: 3.2, chainRadius: 5, chainFuse: 1.0 };
+const BARREL_HP = 300;      // vida do barril: balas tiram a barra; ao zerar ele explode (tiros: pistola ~10, fuzil ~12, AWM 2)
 const TOXIC = { fuse: 3.2, radius: 15, life: 15 };      // barril de fumaca: nuvem de 15 m de raio (~20 passos) por 15 s
 const ICE = { len: 3.6, thick: 0.8, h: 2.4, hp: 1500, life: 50, maxWalls: 12 };
 const GRAV = 14;
@@ -36,7 +37,7 @@ export class Explosives {
   }
 
   addBarrel(b) {
-    b.state = 'idle'; b.t = 0; b.dead = false;
+    b.state = 'idle'; b.t = 0; b.dead = false; b.hp = b.maxHp = BARREL_HP;
     b.glow = new THREE.Sprite(this.glowMat.clone());
     b.glow.scale.set(0.7, 0.7, 1);
     b.glow.position.set(b.x, b.h + 0.25, b.z);
@@ -86,6 +87,17 @@ export class Explosives {
     b.barBg.visible = b.barFill.visible = true;
     this._bar(b, 1);
     if (sound && this.o.audio && this.o.audio.barrelHit) this.o.audio.barrelHit();   // ricochete da bala no barril
+  }
+
+  /** Bala acertou o barril: tira vida (barra). Explode so quando a vida zera. */
+  damageBarrel(b, dmg, owner) {
+    if (b.dead || b.state === 'fuse') return;
+    if (owner) b.igniter = owner;
+    b.hp = Math.max(0, b.hp - dmg);
+    b.barBg.visible = b.barFill.visible = true;
+    this._bar(b, b.hp / b.maxHp);
+    if (this.o.audio && this.o.audio.barrelHit) this.o.audio.barrelHit();     // ricochete
+    if (b.hp <= 0) this._explodeBarrel(b);
   }
 
   // barra: preenche da esquerda e encolhe conforme o tempo acaba (sprite ancorado a esquerda)
@@ -315,7 +327,7 @@ export class Explosives {
     for (const w of this.walls.slice()) this._removeWall(w);
     for (const b of this.barrels) {
       if (b.dead && b.show) { b.show(); this.colliders.push(b.col); }
-      b.dead = false; b.state = 'idle'; b.glow.visible = false; b.barBg.visible = b.barFill.visible = false;
+      b.dead = false; b.state = 'idle'; b.hp = b.maxHp; b.glow.visible = false; b.barBg.visible = b.barFill.visible = false;
     }
     for (const c of this.clouds) this._freeCloud(c);
     this.clouds.length = 0;

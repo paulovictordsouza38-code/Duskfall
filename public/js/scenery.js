@@ -146,8 +146,8 @@ export function buildScenery(scene, lib, renderer) {
 
   // ---------------------------------------------------------------- ceu
   const skyTex = gradientTexture([
-    [0.00, '#2a5aa6'], [0.18, '#4f86c4'], [0.33, '#9fa8c0'], [0.42, '#f0b27a'], [0.47, '#ffc98a'],
-    [0.50, '#ffe0a8'], [0.52, '#b98a6a'], [0.60, '#8a6a58'], [1.00, '#6b5648'],
+    [0.00, '#1c5fc6'], [0.18, '#3b84dc'], [0.34, '#72b1ee'], [0.45, '#b4dbf8'], [0.50, '#e0f1fc'],
+    [0.52, '#a8c2cc'], [0.60, '#8e9c94'], [1.00, '#6c7a6e'],
   ]);
   const skyGeo = new THREE.SphereGeometry(240, 24, 16);
   const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false, toneMapped: false }));
@@ -156,9 +156,22 @@ export function buildScenery(scene, lib, renderer) {
   sky.frustumCulled = false;
   root.add(sky);
 
+  // nuvens brancas macias (sprites filhos do ceu: acompanham a camera, quase sem custo)
+  {
+    const ct = glowTexture();
+    const cm = new THREE.SpriteMaterial({ map: ct, color: 0xffffff, transparent: true, opacity: 0.8, depthWrite: false, fog: false, toneMapped: false });
+    const spots = [[-160, 70, -120, 90], [-40, 95, -200, 110], [120, 80, -150, 100], [190, 60, 20, 80], [-190, 55, 40, 90], [40, 110, 180, 120], [-80, 85, 170, 100], [150, 100, -60, 70]];
+    for (const [x, y, z, w] of spots) {
+      const c = new THREE.Sprite(cm);
+      c.position.set(x, y, z); c.scale.set(w, w * 0.32, 1); c.renderOrder = -9; c.userData.dynamic = true;
+      sky.add(c);
+    }
+  }
+
   const sun = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false }));
   sun.position.set(-70, 22, -210);
-  sun.scale.set(220, 220, 1);
+  sun.material.color.set(0xfff2c8);
+  sun.scale.set(150, 150, 1);
   sun.renderOrder = -9;
   sun.userData.dynamic = true;
   root.add(sun);
@@ -257,7 +270,9 @@ export function buildScenery(scene, lib, renderer) {
           railBag.bar(V(prev[0], y + 1.15, prev[1]), V(px, y + 1.15, pz), 0.06);
           railBag.bar(V(prev[0], y + 0.6, prev[1]), V(px, y + 0.6, pz), 0.04);
         }
-        colliders.push(makeBox(px - 0.4, pz - 0.4, px + 0.4, pz + 0.4, y, y + 1.6));
+        const rc = makeBox(px - 0.4, pz - 0.4, px + 0.4, pz + 0.4, y, y + 1.6);
+        rc.noShoot = true;              // gradil: bloqueia o corpo, mas da para atirar por entre as grades
+        colliders.push(rc);
         prev = [px, pz];
       }
     }
@@ -313,7 +328,10 @@ export function buildScenery(scene, lib, renderer) {
     }
     // vigas soltas no ultimo nivel
     for (let i = 0; i < nx - 1; i++) {
-      if (r() < 0.6) bagSlab.box(ox + (i + 0.5) * sx, (floors - 1) * floorH - 0.2, oz, sx, 0.4, 0.35);
+      if (r() < 0.6) {
+        bagSlab.box(ox + (i + 0.5) * sx, (floors - 1) * floorH - 0.2, oz, sx, 0.4, 0.35);
+        colliders.push(makeBox(ox + i * sx + sx * 0.03, oz - 0.18, ox + (i + 1) * sx - sx * 0.03, oz + 0.18, (floors - 1) * floorH - 0.4, (floors - 1) * floorH));
+      }
     }
     // nucleo de escada/elevador
     bagWall.box(ox + sx * 3.5, floorH * 1.6, oz + sz * 1.2, 3.2, floorH * 3.2, 0.3);
@@ -438,6 +456,11 @@ export function buildScenery(scene, lib, renderer) {
       _s.set(s * (0.8 + r() * 0.8), s * 0.6, s * (0.8 + r() * 0.8));
       _m.compose(_p, _q, _s);
       im.setMatrixAt(i, _m);
+      // colisao da pedra: caixa que acompanha o tamanho real (rotacionado) da pedra; pedrinhas baixas ficam pisaveis
+      const e = _m.elements;
+      const hx = Math.hypot(e[0], e[4], e[8]) * 0.88, hy = Math.hypot(e[1], e[5], e[9]) * 0.88, hz = Math.hypot(e[2], e[6], e[10]) * 0.88;
+      const top = _p.y + hy;
+      if (top > 0.3) colliders.push(makeBox(x - hx, z - hz, x + hx, z + hz, 0, top));
     }
     im.frustumCulled = false;
     im.matrixAutoUpdate = false;

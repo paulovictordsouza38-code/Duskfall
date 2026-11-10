@@ -157,6 +157,7 @@ export class BotManager {
           const cfg = WEAPONS[b.weaponId];
           ai.cool = cfg.interval * (cfg.auto ? 3.0 : 1.7) * (1 + this.rand() * 0.8) + (cfg.kind === 'sniper' ? 1.2 : 0);
           ai.burst++;
+          b.lastShot = ctx.time;          // o radar so mostra o bot quando ele atira
           if (ai.burst >= (cfg.auto ? 3 + Math.floor(this.rand() * 4) : 2)) { ai.burst = 0; ai.rest = 0.5 + this.rand() * 1.1; }
           const move = P.speed > 2 ? 0.75 : 1;
           const hitP = clamp((0.5 - dist * 0.0085) * move * 0.55, 0.03, 0.26);

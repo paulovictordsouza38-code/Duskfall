@@ -66,8 +66,8 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.shadowMap.autoUpdate = false; // sombras atualizadas sob controle (menos custo por quadro)
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xd9955f);
-scene.fog = new THREE.Fog(0xc99466, 42, 300);   // so de dia: luz quente de por do sol
+scene.background = new THREE.Color(0xbcd9f2);
+scene.fog = new THREE.Fog(0xbcd9f2, 60, 320);   // dia de sol, ceu azul
 const camera = new THREE.PerspectiveCamera(TP_FOV, 1, 0.03, 700);
 scene.add(camera);
 
@@ -76,12 +76,12 @@ scene.environment = buildEnvironment(renderer);
 scene.environmentIntensity = 0.45;
 const world = buildWorld(scene, lib, renderer);
 // luzes naturais: sol quente (so ao ar livre), luz de ceu mais forte fora da sala e uma luz de apoio que acompanha o jogador
-const sun = new THREE.DirectionalLight(0xffb877, 0);
+const sun = new THREE.DirectionalLight(0xfff0d2, 0);
 sun.position.set(-40, 70, -30);
 scene.add(sun, sun.target);
-const keyLight = new THREE.DirectionalLight(0xffe2c2, 0.7);
+const keyLight = new THREE.DirectionalLight(0xfff6e8, 0.7);
 scene.add(keyLight, keyLight.target);
-const skyFill = new THREE.HemisphereLight(0xffd2a6, 0x7a5a46, 0);
+const skyFill = new THREE.HemisphereLight(0xbfdcff, 0x8c7d66, 0);
 scene.add(skyFill);
 const HEMI_BASE = world.hemi.intensity;
 const scenery = buildScenery(scene, lib, renderer);
@@ -971,6 +971,7 @@ net.on.msg = (m) => {
   } else if (m.t === 'ev') {
     const a = online.remotes.get(m.from);
     if (m.k === 'shot' && m.d && m.d.a) {
+      if (a) a.lastShot = state.time;                // radar: quem atira aparece
       fx.tracer(new THREE.Vector3(...m.d.a), new THREE.Vector3(...m.d.b));
       const dd = Math.hypot(m.d.a[0] - player.x, m.d.a[2] - player.z);
       if (dd < 45 && WEAPONS[m.d.w]) farShot(m.d.w);
@@ -1383,12 +1384,11 @@ function update(dt) {
   // ---- movimento
   input.readMove(_mv);
   if (dead) { _mv.x = 0; _mv.y = 0; }
-  if (using) { _mv.x *= 0.55; _mv.y *= 0.55; }
   if (input.runToggle) {
     if (aiming) { input.runToggle = false; $('btnRun').classList.remove('on'); }     // mirar cancela a corrida
     else if (Math.hypot(_mv.x, _mv.y) < 0.15) { _mv.x = 0; _mv.y = 1; }              // botao CORRER: sai correndo para frente mesmo parado
   }
-  const sprinting = input.sprint && !dead && !using && !aiming && !w.reloading && _mv.y > 0.3 && Math.abs(_mv.x) < _mv.y * 1.2; // corre so para frente
+  const sprinting = input.sprint && !dead && !aiming && !w.reloading && _mv.y > 0.3 && Math.abs(_mv.x) < _mv.y * 1.2; // corre so para frente
   if (sprinting && state.crouch) state.crouch = false;   // correr levanta o personagem
   if (sprinting && state.prone) state.prone = false;
   state.crouchK += ((state.crouch ? 1 : 0) - state.crouchK) * Math.min(1, 12 * dt);
@@ -1523,7 +1523,8 @@ function update(dt) {
   const rig = rigs[id];
   character.eyePosition(_eye, view.yaw);
   forwardFrom(view.yaw, view.pitch + view.recoil, _fwd);
-  const wd = rayBoxes(_eye.x, _eye.y, _eye.z, _fwd.x, _fwd.y, _fwd.z, 1.2, world.colliders);
+  const wdh = rayShot(_eye.x, _eye.y, _eye.z, _fwd.x, _fwd.y, _fwd.z, 1.2, world.colliders);   // gradis nao encolhem a arma
+  const wd = wdh ? wdh.t : Infinity;
   const wantPull = wd === Infinity ? 0 : clamp(0.62 - wd, 0, 0.42);
   state.wallPull += (wantPull - state.wallPull) * Math.min(1, 14 * dt);
 
@@ -1633,6 +1634,25 @@ function updateCamera(dt, pitch) {
 }
 
 // ------------------------------------------------------------------ lobby: o operador em idle, camera em volta dele
+// lobby 360: arrastar o dedo/mouse na area livre gira em volta do personagem
+let lobbyYaw = 0, lobbyTouched = false, lobbyDrag = null;
+{
+  const le = $('lobby');
+  if (le) {
+    le.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button, input, select, textarea, a, label')) return;
+      lobbyDrag = { x: e.clientX, id: e.pointerId };
+      try { le.setPointerCapture(e.pointerId); } catch (err) { /* ok */ }
+    });
+    le.addEventListener('pointermove', (e) => {
+      if (!lobbyDrag || e.pointerId !== lobbyDrag.id) return;
+      lobbyYaw -= (e.clientX - lobbyDrag.x) * 0.012;
+      lobbyDrag.x = e.clientX; lobbyTouched = true;
+    });
+    const end = (e) => { if (lobbyDrag && e.pointerId === lobbyDrag.id) lobbyDrag = null; };
+    le.addEventListener('pointerup', end); le.addEventListener('pointercancel', end);
+  }
+}
 function lobbyScene(dt) {
   state.time += dt;
   world.update(dt, state.time);
@@ -1653,13 +1673,83 @@ function lobbyScene(dt) {
   sun.intensity = 3.2 * od; skyFill.intensity = 0.9 * od; keyLight.intensity = 0.55 + 0.5 * od;
   sun.position.set(player.x - 30, 40, player.z - 30);
   sun.target.position.set(player.x, 0, player.z);
-  const ang = player.hipsYaw + Math.sin(state.time * 0.35) * 0.55;       // vai e volta na frente do personagem
+  const ang = player.hipsYaw + lobbyYaw + (lobbyTouched ? 0 : Math.sin(state.time * 0.35) * 0.55);   // vai e volta; depois de arrastar, fica onde voce deixou
   const fx0 = -Math.sin(ang), fz0 = -Math.cos(ang);
   camera.position.set(player.x + fx0 * 2.7, 1.45, player.z + fz0 * 2.7);
   // personagem desloca para a direita da tela (menu a esquerda)
   const rx = Math.cos(ang), rz = -Math.sin(ang);
   camera.lookAt(player.x + rx * 0.9 * (window.innerWidth > window.innerHeight ? 1 : 0), 1.15, player.z + rz * 0.9 * (window.innerWidth > window.innerHeight ? 1 : 0));
   if (camera.fov !== 50) { camera.fov = 50; camera.updateProjectionMatrix(); }
+}
+
+
+// ------------------------------------------------------------------ escala da interface + radar
+function setUiScale() {
+  const h = window.innerHeight, w = window.innerWidth;
+  let k = Math.max(0.62, Math.min(1, Math.min(h, w) / 440));
+  if (COARSE) k *= 0.93;
+  try { document.documentElement.style.setProperty('--ui', k.toFixed(3)); } catch (e) { /* sem DOM */ }
+}
+setUiScale();
+window.addEventListener('resize', setUiScale);
+window.addEventListener('orientationchange', () => setTimeout(setUiScale, 250));
+
+const radarEl = $('radar');
+const radarCtx = radarEl && radarEl.getContext ? radarEl.getContext('2d') : null;
+const RADAR_RANGE = 55;          // metros ate a borda
+const RADAR_SHOW = 3;            // segundos que o inimigo fica no radar depois de atirar
+let radarT = 0;
+function drawRadar(dt) {
+  if (!radarCtx) return;
+  radarT += dt;
+  if (radarT < 0.066) return;                        // ~15 quadros/s bastam (barato)
+  const tNow = state.time;
+  radarT = 0;
+  const g = radarCtx, S = 132, C = S / 2, R = C - 3;
+  g.clearRect(0, 0, S, S);
+  g.save();
+  g.beginPath(); g.arc(C, C, R, 0, Math.PI * 2); g.clip();
+  g.fillStyle = 'rgba(6,16,10,0.62)'; g.fillRect(0, 0, S, S);
+  g.strokeStyle = 'rgba(90,255,140,0.28)'; g.lineWidth = 1;
+  for (const f of [0.34, 0.67, 1]) { g.beginPath(); g.arc(C, C, R * f, 0, Math.PI * 2); g.stroke(); }
+  g.beginPath(); g.moveTo(C, C - R); g.lineTo(C, C + R); g.moveTo(C - R, C); g.lineTo(C + R, C); g.stroke();
+  // varredura do scanner (feixe com rastro)
+  const sw = tNow * 2.2;
+  for (let i = 0; i < 10; i++) {
+    g.strokeStyle = `rgba(90,255,140,${0.34 * (1 - i / 10)})`;
+    g.lineWidth = 2;
+    const a = sw - i * 0.07;
+    g.beginPath(); g.moveTo(C, C); g.lineTo(C + Math.cos(a) * R, C + Math.sin(a) * R); g.stroke();
+  }
+  const yaw = view.yaw, fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
+  const dot = (x, z, col, rad, clampEdge, alpha) => {
+    const dx = x - player.x, dz = z - player.z;
+    let sx = (dx * rx + dz * rz) / RADAR_RANGE, sy = (dx * fx + dz * fz) / RADAR_RANGE;
+    const d = Math.hypot(sx, sy);
+    if (d > 1) { if (!clampEdge) return; sx /= d; sy /= d; }
+    const px = C + sx * (R - 5), py = C - sy * (R - 5);
+    g.globalAlpha = alpha;
+    g.fillStyle = col;
+    g.beginPath(); g.arc(px, py, rad, 0, Math.PI * 2); g.fill();
+    g.globalAlpha = 1;
+  };
+  // amigos da equipe: sempre aparecem (verde)
+  if (online.active) for (const a of online.remotes.values()) if (a.alive && a.team === online.team) dot(a.x, a.z, '#5cff8a', 3.2, false, 0.95);
+  // inimigos: so aparecem enquanto atiram (vermelho, apagando)
+  const enemy = (x, z, ls) => {
+    const age = tNow - (ls == null ? -1e9 : ls);
+    if (age < 0 || age > RADAR_SHOW) return;
+    const al = 1 - age / RADAR_SHOW;
+    dot(x, z, '#ff3b30', 3.6 + (1 - al) * 2, true, 0.35 + 0.65 * al);
+  };
+  if (bots.enabled) for (const b of bots.bots) if (b.alive) enemy(b.x, b.z, b.lastShot);
+  if (online.active) for (const a of online.remotes.values()) if (a.alive && a.team !== online.team) enemy(a.x, a.z, a.lastShot);
+  g.restore();
+  g.strokeStyle = 'rgba(90,255,140,0.75)'; g.lineWidth = 2;
+  g.beginPath(); g.arc(C, C, R, 0, Math.PI * 2); g.stroke();
+  // voce: triangulo branco no centro, apontando para cima (para onde olha)
+  g.fillStyle = '#fff';
+  g.beginPath(); g.moveTo(C, C - 6); g.lineTo(C + 4.5, C + 5); g.lineTo(C, C + 2.5); g.lineTo(C - 4.5, C + 5); g.closePath(); g.fill();
 }
 
 // ------------------------------------------------------------------ laco
@@ -1674,7 +1764,7 @@ function frame(now) {
   if (dt > 0.1) dt = 0.1;                       // ate 10 fps o jogo anda em tempo real (antes ficava em camera lenta)
   if (dt <= 0) return;
   const portrait = input.touch && window.innerHeight > window.innerWidth;
-  if (state.started && !state.paused) { if (!portrait) update(dt); }
+  if (state.started && !state.paused) { if (!portrait) { update(dt); drawRadar(dt); } }
   else if (!state.started) lobbyScene(dt);
   scenery.update(camera, state.started && !state.paused ? dt : 0);
   shadowTick++;
@@ -1684,7 +1774,7 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v14';
+    if (el) el.textContent = fps + ' fps · v15';
     if (state.started && !state.paused) {
       adaptT += 1;
       const prev = resScale;

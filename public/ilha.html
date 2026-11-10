@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>DUSKFALL ISLAND - teste do terreno</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b0f14;color:#fff;font:12px/1.35 system-ui,sans-serif;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+  canvas{display:block;width:100%;height:100%}
+  #hud{position:fixed;left:8px;top:8px;background:#0009;padding:6px 8px;border-radius:8px;white-space:pre;pointer-events:none}
+  #tp{position:fixed;right:8px;top:8px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:60vw}
+  button{background:#1d2b3acc;color:#fff;border:1px solid #fff4;border-radius:10px;padding:8px 10px;font:inherit}
+  #act{position:fixed;right:14px;bottom:18px;display:flex;gap:10px}
+  #act button{width:64px;height:64px;border-radius:50%}
+  #act button.on{background:#2e7d32cc}
+  #act button.on{background:#2e7d32cc}
+  #load{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0b0f14;font-size:16px}
+  #stick{position:fixed;left:30px;bottom:30px;width:110px;height:110px;border-radius:50%;border:2px solid #fff3;pointer-events:none;display:none}
+  #knob{position:absolute;left:35px;top:35px;width:40px;height:40px;border-radius:50%;background:#fff5}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">carregando...</div>
+<div id="tp"></div>
+<div id="stick"><div id="knob"></div></div>
+<div id="act"><button id="bPin" style="width:64px;height:64px;border-radius:50%">Reter</button><button id="bRun">Correr</button><button id="bJump">Pular</button></div>
+<div id="load">Gerando a ilha... 0%</div>
+<script>
+  (function () {
+    var local = './vendor/three.module.js';
+    var cdn = 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
+    var url = cdn;
+    try { var x = new XMLHttpRequest(); x.open('HEAD', local, false); x.send(); if (x.status >= 200 && x.status < 300) url = local; } catch (e) {}
+    var s = document.createElement('script'); s.type = 'importmap';
+    s.textContent = JSON.stringify({ imports: { three: url } });
+    document.currentScript.after(s);
+  })();
+  window.addEventListener('error', function (e) { document.getElementById('load').textContent = 'Erro: ' + (e.message || 'falha ao carregar'); });
+</script>
+<script type="module" src="./js/ilha_demo.js"></script>
+</body>
+</html>

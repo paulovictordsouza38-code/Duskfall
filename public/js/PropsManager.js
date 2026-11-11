@@ -77,8 +77,8 @@ export class PropsManager {
   }
 
   /** Cria os objetos do setor. Devolve { group, meshes, n } (use release para devolver). */
-  buildSector(ix, iz) {
-    const p = placeProps(this.sampler, this.cfg, ix, iz);
+  buildSector(ix, iz, placed) {
+    const p = placed || placeProps(this.sampler, this.cfg, ix, iz);
     const g = new THREE.Group(); const meshes = [];
     const m = this._m; const q = this._q; const pos = this._p; const sc = this._s; const up = this._up;
     if (p.trees.length) {

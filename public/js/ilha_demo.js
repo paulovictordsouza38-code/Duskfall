@@ -20,8 +20,9 @@ await island.build();
 const S = island.sampler;
 
 // ------------------------------------------------------------- jogador (somente teste de terreno)
-const EYE = 1.65; const MAX_SLOPE = 1.28;      // ~52 graus: mais ingreme que isso nao se sobe
-const WATER_LIMIT = -1.3;                      // ate a altura do peito dentro d'agua
+const EYE = 1.65; const RADIUS = 0.34;
+const C = island.collision;
+let rayMsg = '';
 const p = { x: 40, z: 130, y: 0, vy: 0, yaw: Math.PI, pitch: 0, run: false };
 p.y = S.height(p.x, p.z);
 await island.preload(p.x, p.z, (q) => { $('load').textContent = 'Carregando setores... ' + Math.round(q * 100) + '%'; });
@@ -69,7 +70,6 @@ function up(e) {
 addEventListener('pointerup', up); addEventListener('pointercancel', up);
 
 // ------------------------------------------------------------- loop
-function walkable(x, z) { return S.inBounds(x, z) && S.height(x, z) - S.sea > WATER_LIMIT && S.slope(x, z) < MAX_SLOPE; }
 function step(dt) {
   let fx = mv.x + ((keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0));
   let fz = mv.z + ((keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0));
@@ -79,13 +79,27 @@ function step(dt) {
   const sp = (run ? 7 : 4) * dt;
   const sin = Math.sin(p.yaw); const cos = Math.cos(p.yaw);
   const dx = (fx * cos + fz * sin) * sp; const dz = (-fx * sin + fz * cos) * sp;
-  if (walkable(p.x + dx, p.z + dz)) { p.x += dx; p.z += dz; }
-  else if (walkable(p.x + dx, p.z)) p.x += dx;
-  else if (walkable(p.x, p.z + dz)) p.z += dz;
-  const g = S.height(p.x, p.z);
+  // tenta o passo inteiro, depois so em x, depois so em z (desliza na parede); depois empurra para fora de objetos
+  for (const [mx, mz] of [[dx, dz], [dx, 0], [0, dz]]) {
+    if (mx === 0 && mz === 0) continue;
+    const np = { x: p.x + mx, z: p.z + mz };
+    if (!C.walkable(np.x, np.z)) continue;
+    C.resolve(np, RADIUS, p.y);
+    if (!C.walkable(np.x, np.z)) continue;
+    p.x = np.x; p.z = np.z; break;
+  }
+  const g = C.groundHeight(p.x, p.z, p.y);
   p.vy -= 14 * dt; p.y += p.vy * dt;
   if (p.y <= g) { p.y = g; p.vy = 0; }
 }
+
+// teste de tiro: dispara um raio para onde a camera olha e mostra no que bateu
+$('bRay').onclick = () => {
+  const cp = Math.cos(p.pitch);
+  const o = { x: p.x, y: p.y + EYE, z: p.z };
+  const h = C.rayShot(o.x, o.y, o.z, -Math.sin(p.yaw) * cp, Math.sin(p.pitch), -Math.cos(p.yaw) * cp, 250);
+  rayMsg = h ? 'raio: ' + h.kind + ' a ' + h.t.toFixed(1) + ' m' : 'raio: nada em 250 m (ceu)';
+};
 
 const hud = $('hud'); let fps = 30; let last = performance.now(); let acc = 0; let frames = 0; let low = 0;
 function frame(now) {
@@ -104,6 +118,7 @@ function frame(now) {
       '\ninclinacao ' + (Math.atan(S.slope(p.x, p.z)) * 57.3).toFixed(0) + ' graus' +
       '\nsetores carregados ' + st.loaded + '/' + cfg.grid * cfg.grid + ' (fila ' + st.pending + ', retidos ' + st.retained + ')  setor ' + st.cx + ',' + st.cz +
       '\nconstruidos ' + st.builds + '  descarregados ' + st.unloads + '  build medio ' + st.avgMs.toFixed(1) + ' / pior ' + st.maxMs.toFixed(1) + ' ms' + (st.capped ? '  (limite: ' + st.capped + ' fora)' : '') +
+      '\n' + (rayMsg || 'raio: (botao Raio)') + '  colisores perto ' + C.near(p.x, p.z).length +
       '\narvores ' + st.props.trees + '  rochas ' + st.props.rocks + '  predios ' + st.props.buildings + '  (objetos: medio ' + st.propAvg.toFixed(1) + ' / pior ' + st.propMax.toFixed(1) + ' ms)' +
       '\ndraw ' + r.render.calls + '  tris ' + (r.render.triangles / 1000).toFixed(0) + 'k  geometrias ' + r.memory.geometries + '  malha ~' + st.mb.toFixed(1) + ' MB';
     low = fps < 30 ? low + 1 : 0;

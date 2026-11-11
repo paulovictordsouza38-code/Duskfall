@@ -6,6 +6,7 @@ import { TerrainManager } from './TerrainManager.js';
 import { ChunkManager } from './ChunkManager.js';
 import { MapStreaming } from './MapStreaming.js';
 import { PropsManager } from './PropsManager.js';
+import { MapCollision } from './MapCollision.js';
 
 export class IslandWorld {
   constructor(scene, cfg) {
@@ -24,6 +25,7 @@ export class IslandWorld {
       },
       maxLoaded: cfg.maxLoaded || 36, maxPerFrame: cfg.maxPerFrame || 1, budgetMs: cfg.budgetMs || 4,
     });
+    this.collision = new MapCollision(this.sampler, cfg);
     this.props = new PropsManager(scene, this.sampler, cfg); this.propQueue = []; this.propStats = { n: 0, sum: 0, max: 0 };
     this.streaming = new MapStreaming(this.chunks, { grid: cfg.grid, size: cfg.size, viewDistance: cfg.viewDistance });
     this.mapVersion = cfg.mapVersion;
@@ -59,8 +61,8 @@ export class IslandWorld {
     if (onProgress) onProgress(1);
   }
 
-  /** Altura do chao no ponto. A Fase 5 liga isto ao groundHeight() dos colisores atuais. */
-  groundHeight(x, z) { return this.sampler.height(x, z); }
+  /** Altura do chao (terreno + topo de objetos pisaveis) para quem esta na altura y. */
+  groundHeight(x, z, y = -Infinity) { return this.collision.groundHeight(x, z, y); }
 
   update(camPos) {
     this.water.position.x = camPos.x; this.water.position.z = camPos.z;
@@ -73,7 +75,7 @@ export class IslandWorld {
     const it = this.propQueue.shift();
     if (!it || it.props) return;
     const t = performance.now();
-    it.props = this.props.buildSector(it.ix, it.iz);
+    it.props = this.props.buildSector(it.ix, it.iz, this.collision.propsFor(it.ix, it.iz));
     const ms = performance.now() - t; const ps = this.propStats;
     ps.n++; ps.sum += ms; if (ms > ps.max) ps.max = ms;
   }
@@ -83,5 +85,5 @@ export class IslandWorld {
   untrack(id) { this.streaming.untrack(id); }
   stats() { const s = this.streaming.stats(); s.poolFree = this.terrain.pool.length; s.created = this.terrain.created; s.mb = this.terrain.memoryMB(); s.props = this.props.live; s.propAvg = this.propStats.n ? this.propStats.sum / this.propStats.n : 0; s.propMax = this.propStats.max; return s; }
 
-  dispose() { this.chunks.dispose(); this.props.dispose(); this.terrain.dispose(); this.scene.remove(this.root); }
+  dispose() { this.collision.dispose(); this.chunks.dispose(); this.props.dispose(); this.terrain.dispose(); this.scene.remove(this.root); }
 }

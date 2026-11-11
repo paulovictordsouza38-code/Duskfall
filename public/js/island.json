@@ -12,7 +12,6 @@
   "budgetMs": 4,
   "regions": [
     { "id": "cidade", "name": "Cidade Central", "type": "plateau", "x": 40, "z": 60, "r": 110, "h": 6 },
-    { "id": "floresta", "name": "Floresta Sombria", "type": "hills", "x": -170, "z": 40, "r": 130, "amp": 11 },
-    { "id": "montanhas", "name": "Montanhas do Silencio", "type": "mountain", "x": 10, "z": -190, "r": 140, "amp": 72 }
+    { "id": "floresta", "name": "Floresta Sombria", "type": "hills", "x": -170, "z": 40, "r": 130, "amp": 11 }
   ]
 }

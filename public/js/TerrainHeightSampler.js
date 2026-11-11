@@ -57,10 +57,6 @@ export class TerrainHeightSampler {
         h += (target - h) * w;                                      // aplaina para a cidade
       } else if (r.type === 'hills') {
         h += r.amp * fbm(x * 0.018, z * 0.018, this.seed + 13, 4) * w;
-      } else if (r.type === 'mountain') {
-        const n = fbm(x * 0.011, z * 0.011, this.seed + 21, 5);
-        const ridge = 1 - Math.abs(2 * n - 1);                      // cristas
-        h += (r.amp * ridge * ridge + 14) * w * w;
       }
     }
     return h + this.sea;

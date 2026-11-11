@@ -37,7 +37,6 @@ export function placeProps(sampler, cfg, ix, iz) {
   const seed = cfg.seed | 0; const out = { trees: [], rocks: [], buildings: [] };
   const city = cityRegion(cfg);
   const forest = (cfg.regions || []).find((r) => r.type === 'hills');
-  const mount = (cfg.regions || []).find((r) => r.type === 'mountain');
 
   // ---- arvores: grade com jitter de 6 m
   const cell = 6; const R = rng(hash(ix, iz, seed + 101) * 4294967295);
@@ -50,7 +49,6 @@ export function placeProps(sampler, cfg, ix, iz) {
       if (sampler.slope(x, z) > 0.62) continue;                // nem em encosta forte
       let p = 0.02;                                            // planicie: arvore solta
       if (forest) p = Math.max(p, 0.78 * Math.pow(sampler._regionWeight(forest, x, z), 0.7));
-      if (mount && h < 34) p = Math.max(p, 0.22 * sampler._regionWeight(mount, x, z) * (1 - h / 34));
       if (city) {
         const wc = sampler._regionWeight(city, x, z);
         if (wc > 0.12 || cityRoad(city, x, z) && wc > 0.05) p = 0;
@@ -59,7 +57,7 @@ export function placeProps(sampler, cfg, ix, iz) {
     }
   }
 
-  // ---- rochas: encostas e montanha, mais algumas na praia
+  // ---- rochas: na floresta e algumas na praia
   const R2 = rng(hash(ix, iz, seed + 202) * 4294967295); const rc = 10;
   for (let cz = 0; cz < sector / rc; cz++) {
     for (let cx = 0; cx < sector / rc; cx++) {
@@ -69,7 +67,7 @@ export function placeProps(sampler, cfg, ix, iz) {
       if (h < 0.4) continue;
       const sl = sampler.slope(x, z);
       let p = h < 3 ? 0.04 : 0.015;
-      if (mount) p = Math.max(p, 0.5 * sampler._regionWeight(mount, x, z) * Math.min(1, 0.3 + sl));
+      if (forest) p = Math.max(p, 0.06 * sampler._regionWeight(forest, x, z) * Math.min(1, 0.3 + sl));   // pedras soltas entre as arvores
       if (city && sampler._regionWeight(city, x, z) > 0.12) p = 0;
       if (roll < p) out.rocks.push({ x, y: sampler.height(x, z) - sc * 0.25, z, sx: sc, sy: sc * fl, sz: sc * (0.7 + R2() * 0.5), r: rot });
     }

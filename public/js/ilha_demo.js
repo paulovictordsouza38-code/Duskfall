@@ -1,4 +1,4 @@
-// Tela de TESTE da Fase 2: anda pela ilha em primeira pessoa para validar o terreno (altura, inclinacao, praia, montanha).
+// Tela de TESTE da Fase 2: anda pela ilha em primeira pessoa para validar o terreno (altura, inclinacao, praia, relevo).
 // Nao usa o main.js nem o cenario atual. Nao tem armas, bots nem multiplayer (fases seguintes).
 import * as THREE from 'three';
 import { IslandWorld } from './IslandWorld.js';
@@ -27,7 +27,7 @@ p.y = S.height(p.x, p.z);
 await island.preload(p.x, p.z, (q) => { $('load').textContent = 'Carregando setores... ' + Math.round(q * 100) + '%'; });
 $('load').style.display = 'none';
 
-const TP = [['Praia', 40, 212], ['Cidade', 40, 60], ['Floresta', -170, 40], ['Montanha', 72, -120], ['Pico', 4, -168]];
+const TP = [['Praia', 40, 212], ['Cidade', 40, 60], ['Floresta', -170, 40]];
 for (const [n, x, z] of TP) {
   const b = document.createElement('button'); b.textContent = n;
   b.onclick = () => { p.x = x; p.z = z; p.y = S.height(x, z); p.vy = 0; };

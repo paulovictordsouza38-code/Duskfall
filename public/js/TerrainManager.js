@@ -30,8 +30,8 @@ export class TerrainManager {
     for (const r of s.regions) {
       const w = s._regionWeight(r, x, z);
       if (w <= 0) continue;
-      const tint = r.type === 'plateau' ? COL.city : r.type === 'hills' ? COL.forest : COL.dark;
-      out.lerp(tint, Math.min(1, w * 1.4) * (r.type === 'mountain' ? 0.35 : 0.85));
+      const tint = r.type === 'plateau' ? COL.city : COL.forest;
+      out.lerp(tint, Math.min(1, w * 1.4) * 0.85);
     }
     for (const r of s.regions) {
       if (r.type !== 'plateau') continue;

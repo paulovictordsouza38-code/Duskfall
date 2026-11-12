@@ -205,6 +205,14 @@ for (const id of WEAPON_IDS) { scene.add(rigs[id].group); rigs[id].group.visible
 const loadout = new Loadout();
 loadout.reset();   // comeca so com a pistola; o resto esta espalhado pelo mapa
 const pickups = createPickups(scene, lib, world.colliders);
+{ // itens fixos nos andares de cima e nas lajes dos sobrados
+  const tiers = {
+    ground: [['bandage', 'a'], ['ammo', 'short'], ['medkit', 'k'], ['frag', 'f']],
+    up: [['ammo', 'long'], ['gel', 'g'], ['weapon', 'mp5'], ['weapon', 'xm8'], ['medkit', 'k']],
+    roof: [['weapon', 'awm'], ['weapon', 'scar'], ['scope', '4x'], ['weapon', 'famas'], ['ammo', 'long']],
+  };
+  (scenery.casaLoot || []).forEach((l, i) => { const t = tiers[l.tier]; const [ty, id] = t[(l.house * 3 + i) % t.length]; pickups.place(ty, id, l.x, l.z, l.y); });
+}
 const stats = new Stats();
 const fx = new Effects(scene, lib);
 const audio = new GameAudio();
@@ -334,6 +342,7 @@ function placeToxicBarrels(count) {
 }
 placeToxicBarrels(5);
 const bots = new BotManager({ scene, colliders: world.colliders, makeRig, waypoints: wps, count: COARSE ? 5 : 8 });
+bots.onDeath = (b) => { spawnCrate(b.x, b.z, groundHeight(b.x, b.z, b.y || 0, world.colliders), botCrateContents(b), '', false); };
 
 let lastFarShot = 0;
 function farShot(id) {            // tiros de bots/outros jogadores: som leve, no maximo 1 a cada 90 ms
@@ -371,7 +380,64 @@ function hurtPlayer(dmg) {
   hurtT = 0.6;
   if (died) killPlayer();
 }
+// ---- caixa de loot: quem morre deixa tudo que carregava
+let crateSeq = 0;
+function myCrateContents() {
+  const guns = [];
+  loadout.owned.forEach((o, i) => { if (o) guns.push({ id: WEAPON_IDS[i], mag: loadout.states[i].mag, reserve: loadout.states[i].reserve }); });
+  const items = { bandage: pack.n.bandage, medkit: pack.n.medkit, frag: pack.n.frag, gel: pack.n.gel };
+  const c = { guns, items, scope4x: !!(pack.scope4x || loadout.has4x) };
+  return crateIsEmpty(c) ? null : c;
+}
+function crateIsEmpty(c) { return !c.guns.length && !c.scope4x && !Object.values(c.items).some((n) => n > 0); }
+function cleanCrate(c) {   // dados vindos da rede: valida tudo
+  const out = { guns: [], items: { bandage: 0, medkit: 0, frag: 0, gel: 0 }, scope4x: false };
+  if (!c || typeof c !== 'object') return out;
+  if (Array.isArray(c.guns)) for (const g of c.guns.slice(0, 4)) {
+    if (g && WEAPON_IDS.includes(g.id)) out.guns.push({ id: g.id, mag: Math.max(0, Math.min(200, Math.floor(+g.mag) || 0)), reserve: Math.max(0, Math.min(999, Math.floor(+g.reserve) || 0)) });
+  }
+  for (const k of Object.keys(out.items)) out.items[k] = Math.max(0, Math.min(ITEM_CAP[k], Math.floor(c.items && +c.items[k]) || 0));
+  out.scope4x = !!c.scope4x;
+  return out;
+}
+function spawnCrate(x, z, gy, c, cid, send) {
+  pickups.dropCrate(x, z, gy, c, cid);
+  if (send && online.active) net.send({ t: 'ev', k: 'crate', d: { id: cid, x: Math.round(x * 100) / 100, y: Math.round(gy * 100) / 100, z: Math.round(z * 100) / 100, c } });
+}
+function botCrateContents(b) {
+  const id = WEAPONS[b.weaponId] ? b.weaponId : 'mp5';
+  const cfg = WEAPONS[id];
+  const items = { bandage: Math.random() < 0.6 ? 1 : 0, medkit: Math.random() < 0.3 ? 1 : 0, frag: Math.random() < 0.4 ? 1 : 0, gel: Math.random() < 0.2 ? 1 : 0 };
+  return { guns: [{ id, mag: cfg.magSize, reserve: Math.round(cfg.reserve * 0.5) }], items, scope4x: false };
+}
+/** Pega o conteudo de uma caixa. O que nao couber (mochila cheia) fica na caixa. */
+function openCrate(it) {
+  const c = it.contents; if (!c) return false;
+  let took = false;
+  const left = { guns: [], items: { ...c.items }, scope4x: c.scope4x };
+  for (const g of c.guns) {
+    const idx = WEAPON_IDS.indexOf(g.id);
+    if (idx < 0) continue;
+    if (loadout.owned[idx]) {
+      const got = loadout.addAmmo(g.id);        // ja tem a arma: leva a municao
+      if (got > 0) took = true; else left.guns.push(g);
+    } else {
+      const pr = loadout.pickUp(idx);
+      loadout.states[idx].mag = g.mag; loadout.states[idx].reserve = g.reserve;
+      if (pr && pr.dropped >= 0) dropItem('weapon', WEAPON_IDS[pr.dropped]);
+      took = true;
+    }
+  }
+  for (const k of Object.keys(left.items)) {
+    if (left.items[k] > 0) { const got = pack.add(k, left.items[k]); if (got > 0) took = true; left.items[k] -= got; }
+  }
+  if (left.scope4x && !loadout.has4x) { loadout.has4x = true; pack.scope4x = true; left.scope4x = false; took = true; }
+  else if (left.scope4x) { left.scope4x = true; }
+  it.contents = left;
+  return took;
+}
 function killPlayer() {
+  { const c = myCrateContents(); if (c) spawnCrate(player.x, player.z, groundHeight(player.x, player.z, player.y, world.colliders), c, online.you + ':' + (++crateSeq) + ':' + Math.floor(Math.random() * 1e6), true); }
   match.dead = true; match.deadT = 4; match.deaths++;
   using = null; { const ur = $('useRing'); if (ur) ur.className = ''; } state.gelMode = false; input.fire = false; input.aim = false;
   $('dead').classList.add('on');
@@ -983,6 +1049,12 @@ net.on.msg = (m) => {
       const b = explosives.barrels[m.d.i]; if (b) explosives.damageBarrel(b, Math.min(200, +m.d.dm || 0), null);
     } else if (m.k === 'ign' && m.d) {
       const b = explosives.barrels[m.d.i]; if (b) explosives.ignite(b);
+    } else if (m.k === 'crate' && m.d && Number.isFinite(+m.d.x) && Number.isFinite(+m.d.z)) {
+      const cc = cleanCrate(m.d.c);
+      if (!crateIsEmpty(cc)) spawnCrate(+m.d.x, +m.d.z, Number.isFinite(+m.d.y) ? +m.d.y : 0, cc, String(m.d.id || '').slice(0, 40), false);
+    } else if (m.k === 'cget' && m.d) {
+      const it = pickups.items.find((i) => i.type === 'crate' && i.cid && i.cid === String(m.d.id));
+      if (it) pickups.remove(it);
     }
   } else if (m.t === 'found') { foundList = m.list.filter((p) => !isFriend(p.name)); frStatus(''); renderFriends();
   } else if (m.t === 'online') { onlineList = m.list; renderFriends();
@@ -1438,6 +1510,13 @@ function update(dt) {
       const got = loadout.addAmmo(c.id);
       if (got > 0) { audio.pickup(); toast(c.id === 'long' ? '+ MUNIÇÃO LONGA (fuzis e AWM)' : '+ MUNIÇÃO CURTA (pistolas e SMG)'); }
       else { pickups.release(c.item, state.time); }
+    } else if (c.type === 'crate') {
+      if (openCrate(c.item)) {
+        audio.pickup(); toast('CAIXA DE LOOT');
+        syncWeaponVisual();
+        if (crateIsEmpty(c.item.contents)) { if (c.item.cid && online.active) net.send({ t: 'ev', k: 'cget', d: { id: c.item.cid } }); pickups.remove(c.item); }
+        else { pickups.release(c.item, state.time); toast('MOCHILA CHEIA — RESTO FICOU NA CAIXA'); }
+      } else { pickups.release(c.item, state.time); toast('MOCHILA CHEIA'); }
     } else if (c.type === 'scope') {
       if (loadout.has4x) { pickups.release(c.item, state.time); continue; }
       loadout.has4x = true; pack.scope4x = true;
@@ -1774,7 +1853,7 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v15';
+    if (el) el.textContent = fps + ' fps · v16';
     if (state.started && !state.paused) {
       adaptT += 1;
       const prev = resScale;

@@ -87,7 +87,7 @@ export class BotManager {
     if (!b.alive) return false;
     b.hp -= shotDamage(dmg, zone);
     b.ai.seenT = this.t;                                           // quem leva tiro acha o jogador
-    if (b.hp <= 0) { b.die(); b.ai.respawn = 7; return true; }
+    if (b.hp <= 0) { b.die(); b.ai.respawn = 7; if (this.onDeath) this.onDeath(b); return true; }
     return false;
   }
 
@@ -97,7 +97,7 @@ export class BotManager {
     for (const b of this.bots) {
       if (!b.alive) continue;
       const d = Math.hypot(b.x - x, b.y + 0.9 - y, b.z - z);
-      if (d < radius) { const dm = dmgFn(d); b.hp -= dm; if (b.hp <= 0) { b.die(); b.ai.respawn = 7; kills++; } }
+      if (d < radius) { const dm = dmgFn(d); b.hp -= dm; if (b.hp <= 0) { b.die(); b.ai.respawn = 7; kills++; if (this.onDeath) this.onDeath(b); } }
     }
     return kills;
   }

@@ -5,6 +5,7 @@
 // nao dependem das luzes internas e o visual da sala nao muda.
 import * as THREE from 'three';
 import { makeBox, makeCircle } from './logic/collision.js';
+import { buildCasas } from './logic/casas.js';
 
 function rng(seed) {
   let a = seed >>> 0;
@@ -888,6 +889,21 @@ export function buildScenery(scene, lib, renderer) {
     bagCont.forEach((b, i) => b.build(mCont[i], unit, root));
   }
 
+  // ---------------------------------------------------------------- E) casas e sobrados abandonados (atras dos guindastes)
+  const casas = buildCasas();
+  {
+    const mats = {
+      wall: [new Bag(), mat(0x8f8a80, concreteSet.map, 0.14, 0.36)],
+      brick: [new Bag(), mBrick],
+      slab: [new Bag(), mConcrete],
+      step: [new Bag(), mDeck],
+      junk: [new Bag(), mRust],
+    };
+    for (const b of casas.boxes) mats[b.mat][0].box(b.cx, b.cy, b.cz, b.sx, b.sy, b.sz);
+    for (const k of Object.keys(mats)) mats[k][0].build(mats[k][1], unit, root);
+    for (const c of casas.colliders) colliders.push(c);
+  }
+
   // ---------------------------------------------------------------- silhuetas distantes
   {
     const r = rng(131);
@@ -930,5 +946,5 @@ export function buildScenery(scene, lib, renderer) {
     }
   }
 
-  return { root, update, colliders, elevators, drums, getDrumMesh: () => drumMesh };
+  return { root, update, colliders, elevators, drums, getDrumMesh: () => drumMesh, casaLoot: casas.loot };
 }

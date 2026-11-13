@@ -407,6 +407,28 @@ export class Character {
    *  p.speed, p.lx/p.lz (velocidade local: direita/frente), p.hipsYaw, p.aimYaw, p.aimPitch, p.aimBlend,
    *  p.rig (arma), p.draw (0..1), p.reload (-1 ou 0..1), p.recoil (0..1), p.slide (0..1)
    */
+  /** pose de queda livre: legK = pernas dobradas para cima (0..1), armK = bracos levantados (0..1). Chamar depois de update(). */
+  dive(legK, armK) {
+    const B = this.bones;
+    if (legK > 0.001) {
+      for (const side of ['L', 'R']) {
+        const th = B['thigh' + side], sh = B['shin' + side], ft = B['foot' + side];
+        th.rotation.x += (-0.45 - th.rotation.x) * legK;
+        sh.rotation.x += (-1.55 - sh.rotation.x) * legK;
+        ft.rotation.x += (0.5 - ft.rotation.x) * legK;
+      }
+    }
+    if (armK > 0.001) {
+      for (const [s, side] of [[-1, 'L'], [1, 'R']]) {
+        const up = B['upperArm' + side], fo = B['forearm' + side];
+        up.rotation.x += (2.7 - up.rotation.x) * armK;
+        up.rotation.z += (s * 0.55 - up.rotation.z) * armK;
+        up.rotation.y += (0 - up.rotation.y) * armK;
+        fo.rotation.x += (-0.7 - fo.rotation.x) * armK;
+      }
+    }
+  }
+
   update(dt, p) {
     const B = this.bones;
     this.time += dt;

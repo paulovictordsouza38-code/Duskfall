@@ -686,7 +686,7 @@ const state = {
 let prevWeaponIndex = -1;
 
 // ------------------------------------------------------------------ queda de helicoptero (inicio da partida)
-const drop = { phase: null, ht: 0, d: null, tilt: 0 };      // phase: 'heli' | 'fall' | 'chute' | null
+const drop = { phase: null, ht: 0, d: null, tilt: 0, arms: 0 };      // phase: 'heli' | 'fall' | 'chute' | null
 const heli = createHeli(scene);
 const playerChute = createChute(); scene.add(playerChute);
 const dropBtn = document.createElement('div');
@@ -712,7 +712,7 @@ function endDrop(hideHeli = true) {
   drop.phase = null; drop.d = null;
   scene.fog.near = FOG0.near; scene.fog.far = FOG0.far;
   character.root.visible = true; playerChute.visible = false;
-  if (hideHeli) heli.show(false);
+  if (hideHeli) { heli.show(false); audio.rotor(0); }
   showDropBtn();
   if (camera.fov !== TP_FOV) { camera.fov = TP_FOV; camera.updateProjectionMatrix(); }
 }
@@ -1039,6 +1039,7 @@ function setPaused(p) {
   showScreen(p && state.started ? 'pause' : null);
   if (p) { input.releaseAll(); input.exitLock(); } else { input.requestLock(); }
   input.enabled = !p;
+  if (p) audio.rotor(0);
 }
 
 // ---- tela cheia (so joga em tela cheia, quando o aparelho permite)
@@ -1886,8 +1887,15 @@ function update(dt) {
   // deitado (posicao de atirador de elite): o corpo deita para a frente
   character.proneK = state.proneK;
   character.root.rotation.order = 'YXZ';
-  drop.tilt += ((drop.phase === 'fall' ? 0.5 : drop.phase === 'chute' ? 0.06 : 0) - drop.tilt) * Math.min(1, 3 * dt);   // queda de barriga para baixo, so um pouco inclinado
+  drop.tilt += ((drop.phase === 'fall' ? 1.45 : 0) - drop.tilt) * Math.min(1, 4 * dt);   // queda livre: de barriga para baixo
+  drop.arms += ((drop.phase === 'fall' || drop.phase === 'chute' ? 1 : 0) - drop.arms) * Math.min(1, 5 * dt);
+  character.dive(drop.tilt / 1.45, drop.arms);
   character.root.rotation.x = -1.45 * state.proneK - drop.tilt;
+  if (drop.tilt > 0.01) {                          // gira em volta do meio do corpo (nao dos pes) para ficar sob a camera
+    const sn = Math.sin(drop.tilt);
+    character.root.position.y += 0.9 * sn;
+    character.root.position.x += Math.sin(player.hipsYaw) * 0.85 * sn; character.root.position.z += Math.cos(player.hipsYaw) * 0.85 * sn;
+  }
   if (character.stepEvent !== state.lastStep) {
     state.lastStep = character.stepEvent;
     audio.step(player.speed > 3.2);
@@ -1898,7 +1906,7 @@ function update(dt) {
   const zoom = loadout.zoom;
   const isAwm = loadout.currentId === 'awm';
   const scoped = (state.armed || state.gelMode) && state.aimBlend > 0.6;   // mirando: so a mira (sem maos nem arma)
-  rigs[loadout.currentId].group.visible = state.armed && !scoped && !state.gelMode;
+  rigs[loadout.currentId].group.visible = state.armed && !scoped && !state.gelMode && drop.phase !== 'fall' && drop.phase !== 'chute';
   if (character.skin) character.skin.group.visible = !scoped;
   const showScope = (state.armed || state.gelMode) && state.aimBlend > 0.92;
   setClass('scope', $('scope'), 'on', showScope);
@@ -1927,6 +1935,7 @@ function update(dt) {
   world.update(dt, state.time);
   fx.update(dt);
   heli.update(dt);
+  { let rv = 0; if (heli.root.visible && !state.paused) { rv = drop.phase === 'heli' ? 0.85 : 0.85 * Math.exp(-Math.max(0, camera.position.distanceTo(heli.root.position) - 8) / 45); } audio.rotor(rv); }
   if (heli.root.visible) { const hp = heliAt(drop.ht); heli.set(hp.x, hp.y, hp.z); if (hp.end && !dropOn) heli.show(false); }
 
   // ---- HUD
@@ -1958,13 +1967,13 @@ function updateCamera(dt, pitch) {
   }
   _rgt.set(Math.cos(yaw), 0, -Math.sin(yaw));
   forwardFrom(yaw, pitch, _fwd);
-  const base = _v1.set(player.x, player.y + 1.52 - 0.5 * state.crouchK - 1.0 * state.proneK, player.z);
+  const base = _v1.set(player.x, player.y + 1.52 - 0.5 * state.crouchK - 1.0 * state.proneK + (drop.phase === 'chute' ? 1.1 : 0), player.z);
   // sobre o ombro direito; se houver parede/caixa ao lado, o afastamento lateral diminui
   const side = rayBoxes(base.x, base.y, base.z, _rgt.x, 0, _rgt.z, 0.55, world.colliders);
   const off = (side === Infinity ? 0.42 : clamp(side - 0.12, 0, 0.42)) * state.alignK;
   const pivot = _v2.copy(base).addScaledVector(_rgt, off);
   // posicao desejada atras do jogador
-  const wantDist = drop.phase ? 4.8 : 2.5;
+  const wantDist = drop.phase === 'fall' ? 7.5 : drop.phase === 'chute' ? 8.5 : 2.5;
   const back = _v3.copy(_fwd).multiplyScalar(-1);
   back.y += 0.12;
   back.normalize();
@@ -1987,7 +1996,7 @@ function updateCamera(dt, pitch) {
   camera.position.lerpVectors(tp, _eye, s);
   camera.rotation.set(pitch, yaw, 0, 'YXZ');
   if (shakeT > 0) { shakeT -= dt; const k = shakeT * 0.09; camera.position.x += (Math.random() - 0.5) * k; camera.position.y += (Math.random() - 0.5) * k; }
-  const fov = (drop.phase ? 84 : TP_FOV) + (adsFov(state.gelMode ? 1 : loadout.zoom) - TP_FOV) * s;
+  const fov = (drop.phase === 'fall' || drop.phase === 'chute' ? 92 : drop.phase ? 84 : TP_FOV) + (adsFov(state.gelMode ? 1 : loadout.zoom) - TP_FOV) * s;
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
 }
 
@@ -2132,7 +2141,7 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v22';
+    if (el) el.textContent = fps + ' fps · v23';
     if (state.started && !state.paused) {
       adaptT += 1;
       const prev = resScale;

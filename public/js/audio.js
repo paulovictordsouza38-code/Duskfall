@@ -9,7 +9,7 @@ export const SHOT_FILES = {
   sniper: ['som_sniper.mp3'],    // AWM
 };
 // Outros sons com arquivo (tocados em eventos): dano ao jogador.
-export const EVENT_FILES = { hurt: ['som_dano.mp3'], explosion: ['som_explosao.mp3'], barrelhit: ['som_barril.mp3'], toxic: ['som_fumaca.mp3'] };
+export const EVENT_FILES = { hurt: ['som_dano.mp3'], explosion: ['som_explosao.mp3'], barrelhit: ['som_barril.mp3'], toxic: ['som_fumaca.mp3'], rotor: ['som_helice.mp3'] };
 const SHOT_GAIN = { pistol: 0.8, smg: 0.8, rifle: 0.75, sniper: 1 };
 
 export class GameAudio {
@@ -90,6 +90,24 @@ export class GameAudio {
     this._out(g, reverb);
     src.start();
     return true;
+  }
+
+  /** helice do helicoptero em loop; chamar todo quadro com o volume (0 = para) */
+  rotor(vol) {
+    if (!this.ctx) return;
+    const buf = this.samples.rotor && this.samples.rotor[0];
+    if (vol <= 0.003) {
+      if (this._rot) { const r = this._rot; this._rot = null; try { r.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05); r.src.stop(this.ctx.currentTime + 0.3); } catch (e) { /* ok */ } }
+      return;
+    }
+    if (!buf) return;
+    if (!this._rot) {
+      const src = this.ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+      const g = this.ctx.createGain(); g.gain.value = 0;
+      src.connect(g); g.connect(this.master); src.start();
+      this._rot = { src, g };
+    }
+    this._rot.g.gain.setTargetAtTime(vol, this.ctx.currentTime, 0.12);
   }
 
   setMuted(m) {

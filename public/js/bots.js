@@ -76,7 +76,7 @@ export class BotManager {
       dr.delay -= dt;
       if (heli) b.place(heli.x + dr.slot.x, heli.y, heli.z + dr.slot.z, -Math.PI / 2);   // em pe dentro da cabine, olhando a porta
       if (dr.delay > 0 || !heli) { b.update(dt, this.t); return; }
-      dr.d = newDrop(heli.x + 1.2, heli.y, heli.z + dr.slot.z);
+      dr.d = newDrop(heli.x + 1.2, heli.y, heli.z + dr.slot.z); dr.d.vx = 6;   // sai da porta para fora do casco
       dr.phase = 'go'; b.root.visible = true; b.hp = Math.round(HP_MAX * 0.6);
     }
     const d = dr.d;

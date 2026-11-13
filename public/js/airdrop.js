@@ -200,18 +200,18 @@ export function createChute() {
   }
   const g = new THREE.Group();                         // origem = altura dos ombros do personagem
   const wing = new THREE.Mesh(_wing.geo, _wing.mat);
-  wing.position.y = 1.95; wing.rotation.x = 0.16;      // borda de ataque um pouco mais alta
+  wing.position.y = 2.1; wing.rotation.x = 0.16; wing.scale.setScalar(1.22);      // borda de ataque um pouco mais alta
   g.add(wing);
   const pts = [];
   const R = 1.65 / Math.sin(0.8);
   for (const s of [0.25, 0.8]) for (let i = 0; i < 7; i++) {
     const u = (i / 6) * 2 - 1, th = u * 0.8;
-    const x = R * Math.sin(th), y = 1.95 + R * (Math.cos(th) - 1), z = (s - 0.5) * (1 - 0.3 * Math.abs(u)) - Math.abs(u) * 0.12;
-    pts.push(x, y, z * Math.cos(0.16) - 0.05, Math.sign(x) * 0.22, 0.0, s > 0.5 ? 0.1 : -0.1);
+    const x = 1.22 * R * Math.sin(th), y = 2.1 + 1.22 * R * (Math.cos(th) - 1), z = 1.22 * ((s - 0.5) * (1 - 0.3 * Math.abs(u)) - Math.abs(u) * 0.12);
+    pts.push(x, y, z * Math.cos(0.16) - 0.05, Math.sign(x) * 0.3, 0.55, s > 0.5 ? 0.12 : 0.2);   // ate as maos (bracos levantados)
   }
   const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
   g.add(new THREE.LineSegments(lg, _lineMat));
-  g.position.y = 1.45; g.visible = false; g.frustumCulled = false;
+  g.position.y = 1.45; g.frustumCulled = false;
   const holder = new THREE.Group(); holder.add(g); holder.visible = false;
   Object.defineProperty(holder, 'chute', { value: g });
   return holder;

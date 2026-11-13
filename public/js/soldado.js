@@ -34,6 +34,7 @@ const _v3 = new THREE.Vector3();
 const _v4 = new THREE.Vector3();
 const AX = new THREE.Vector3(1, 0, 0);
 const AY = new THREE.Vector3(0, 1, 0);
+const AZ = new THREE.Vector3(0, 0, 1);
 
 function buildShared(S) {
   const pos = new Float32Array(b64(S.pos));
@@ -313,6 +314,19 @@ export class SoldadoSkin {
         this._add(sd + 'UpLeg', AX, th);
         this._add(sd + 'Leg', AX, sh);
         this._add(sd + 'Foot', AX, -(th + sh) * 0.85);
+      }
+    }
+
+    // queda livre / paraquedas: pernas dobradas para cima, bracos levantados (segurando as linhas)
+    const dk = p.dive || 0, da = p.diveArm || 0;
+    if (dk > 0.01) {
+      for (const sd of ['Left', 'Right']) { this._add(sd + 'UpLeg', AX, 0.4 * dk); this._add(sd + 'Leg', AX, 1.5 * dk); this._add(sd + 'Foot', AX, 0.35 * dk); }
+    }
+    if (da > 0.01) {
+      for (const sd of ['Left', 'Right']) {
+        this._add(sd + 'Arm', AX, -2.5 * da);
+        this._add(sd + 'Arm', AZ, (sd === 'Right' ? 0.45 : -0.45) * da);
+        this._add(sd + 'ForeArm', AX, -0.6 * da);
       }
     }
 

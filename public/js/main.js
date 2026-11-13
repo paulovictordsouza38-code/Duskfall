@@ -686,7 +686,7 @@ const state = {
 let prevWeaponIndex = -1;
 
 // ------------------------------------------------------------------ queda de helicoptero (inicio da partida)
-const drop = { phase: null, ht: 0, d: null, tilt: 0, arms: 0 };      // phase: 'heli' | 'fall' | 'chute' | null
+const drop = { phase: null, ht: 0, d: null, tilt: 0, arms: 0, swap: false };      // phase: 'heli' | 'fall' | 'chute' | null
 const heli = createHeli(scene);
 const playerChute = createChute(); scene.add(playerChute);
 const dropBtn = document.createElement('div');
@@ -709,7 +709,7 @@ function beginDrop() {
   showDropBtn();
 }
 function endDrop(hideHeli = true) {
-  drop.phase = null; drop.d = null;
+  drop.phase = null; drop.d = null; if (drop.swap) { heli.setInside(false); drop.swap = false; }
   scene.fog.near = FOG0.near; scene.fog.far = FOG0.far;
   character.root.visible = true; playerChute.visible = false;
   if (hideHeli) { heli.show(false); audio.rotor(0); }
@@ -721,7 +721,8 @@ function dropAction() {
   if (drop.phase === 'heli') {
     drop.phase = 'fall';
     drop.d = newDrop(hpNow().x + 1.2, player.y, player.z);
-    heli.setInside(false); character.root.visible = true;
+    drop.d.vx = 6; drop.swap = true;                   // sai pela porta; o casco externo so aparece quando voce esta fora dele
+    character.root.visible = true;
     view.pitch = 0.1;
     audio.jump();
   } else if (drop.phase === 'fall') {
@@ -1793,6 +1794,7 @@ function update(dt) {
       const d = drop.d;
       let mx = wx, mz = wz; const ml = Math.hypot(mx, mz); if (ml > 1) { mx /= ml; mz /= ml; }
       const land = stepDrop(d, dt, gY, mx, mz);
+      if (drop.swap && (d.y < hp.y - 3.0 || d.x - hp.x > 3.2)) { heli.setInside(false); drop.swap = false; }
       const q = { x: d.x, z: d.z };
       resolveMovement(q, PLAYER_RADIUS, world.colliders, 4, d.y);
       d.x = q.x; d.z = q.z;
@@ -1879,7 +1881,8 @@ function update(dt) {
     speed: player.speed, lx: localRight, lz: localFwd, hipsYaw: player.hipsYaw,
     aimYaw: wrapAngle(player.hipsYaw + wrapAngle(view.yaw - player.hipsYaw) * state.alignK), aimPitch: aimPitch * state.alignK,
     crouch: state.crouchK * (1 - state.proneK), air: dropOn ? 0 : state.airK,
-    aimBlend: state.aimBlend, rig: state.armed && !state.gelMode ? rig : null,
+    aimBlend: state.aimBlend, rig: state.armed && !state.gelMode && drop.phase !== 'fall' && drop.phase !== 'chute' ? rig : null,
+    dive: drop.tilt / 1.45, diveArm: drop.arms,
     draw: w.cfg.drawTime > 0 ? 1 - w.drawT / w.cfg.drawTime : 1,
     reload: w.reloading ? w.reloadProgress : -1,
     recoil: state.recoilVis, slide: slideShown, wallPull: state.wallPull,
@@ -1973,7 +1976,7 @@ function updateCamera(dt, pitch) {
   const off = (side === Infinity ? 0.42 : clamp(side - 0.12, 0, 0.42)) * state.alignK;
   const pivot = _v2.copy(base).addScaledVector(_rgt, off);
   // posicao desejada atras do jogador
-  const wantDist = drop.phase === 'fall' ? 7.5 : drop.phase === 'chute' ? 8.5 : 2.5;
+  const wantDist = drop.phase === 'fall' ? 6.2 : drop.phase === 'chute' ? 6.8 : 2.5;
   const back = _v3.copy(_fwd).multiplyScalar(-1);
   back.y += 0.12;
   back.normalize();
@@ -1996,7 +1999,7 @@ function updateCamera(dt, pitch) {
   camera.position.lerpVectors(tp, _eye, s);
   camera.rotation.set(pitch, yaw, 0, 'YXZ');
   if (shakeT > 0) { shakeT -= dt; const k = shakeT * 0.09; camera.position.x += (Math.random() - 0.5) * k; camera.position.y += (Math.random() - 0.5) * k; }
-  const fov = (drop.phase === 'fall' || drop.phase === 'chute' ? 92 : drop.phase ? 84 : TP_FOV) + (adsFov(state.gelMode ? 1 : loadout.zoom) - TP_FOV) * s;
+  const fov = (drop.phase === 'fall' || drop.phase === 'chute' ? 88 : drop.phase ? 84 : TP_FOV) + (adsFov(state.gelMode ? 1 : loadout.zoom) - TP_FOV) * s;
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
 }
 
@@ -2141,7 +2144,7 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v23';
+    if (el) el.textContent = fps + ' fps · v24';
     if (state.started && !state.paused) {
       adaptT += 1;
       const prev = resScale;

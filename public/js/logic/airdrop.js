@@ -1,15 +1,24 @@
 // Queda livre e paraquedas (sem Three.js, testavel no Node). Mesmas regras para o jogador, bots e jogadores online.
 export const DROP = {
-  ALT: 230,            // altura do helicoptero (m)
-  HELI_SPEED: 22,      // velocidade do helicoptero (m/s)
+  ALT: 300,            // altura do helicoptero (m)
+  HELI_SPEED: 12,      // velocidade do helicoptero (m/s)
   HELI_Z0: -8, HELI_Z1: -312,
-  FALL_V: 30,          // velocidade maxima da queda livre (m/s)
-  FALL_A: 22,          // aceleracao ate la
-  CHUTE_V: 6,          // velocidade da descida com paraquedas aberto
-  CHUTE_BRAKE: 26,     // desaceleracao ao abrir
+  FALL_V: 20,          // velocidade maxima da queda livre (m/s)
+  FALL_A: 14,          // aceleracao ate la
+  CHUTE_V: 4,          // velocidade da descida com paraquedas aberto
+  CHUTE_BRAKE: 18,     // desaceleracao ao abrir
   OPEN_H: 70,          // abre sozinho a esta altura sobre o chao
-  H_FALL: 12, H_CHUTE: 9,   // controle horizontal (m/s)
+  H_FALL: 9, H_CHUTE: 7,   // controle horizontal (m/s)
 };
+
+// cabine (metros, relativo ao centro do helicoptero) e lugares onde cada um fica em pe antes de pular
+export const CABIN = { W: 1.6, L: 3.2, H: 2.8 };
+export const SLOTS = [[1.0, 0.5], [1.0, -0.9], [1.0, 1.9], [1.0, -2.2], [1.0, 3.0], [0.2, 1.2], [0.2, -0.2], [0.2, -1.6], [0.2, 2.6], [0.2, -2.6]]
+  .map(([x, z]) => ({ x, z }));
+export function slotFor(id) {                 // online: mesmo lugar em todas as telas, a partir do id
+  let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return SLOTS[h % SLOTS.length];
+}
 
 export function newDrop(x, y, z) {
   return { phase: 'fall', x, y, z, vy: 0, vx: 0, vz: 0, open: 0, t: 0, auto: false };

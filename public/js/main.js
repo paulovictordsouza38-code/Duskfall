@@ -427,6 +427,7 @@ const lootEl = $('lootPanel') || (() => { const d = document.createElement('div'
 {
   const st = document.createElement('style');
   st.textContent = `
+  .layer { z-index:4; }   /* o HUD fica acima da area de camera (lookZone): sem isso os toques nos quadros de arma e loot nao chegam */
   #ammo.wnew { background:none !important; border:none !important; padding:0 !important; min-width:0 !important; backdrop-filter:none; text-align:left; width:132px; }
   body.touch #itemBtns { top:calc(152px + env(safe-area-inset-top)); gap:6px; }
   body.touch .ib { width:calc(var(--Bt)*.86); height:calc(var(--Bt)*.86); }
@@ -2037,7 +2038,7 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v19';
+    if (el) el.textContent = fps + ' fps · v20';
     if (state.started && !state.paused) {
       adaptT += 1;
       const prev = resScale;

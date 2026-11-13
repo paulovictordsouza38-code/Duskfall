@@ -20,8 +20,8 @@ import { mergeStaticMeshes } from './merge.js';
 import { Explosives, EXPLOSIVE_STATS } from './explosives.js';
 import { Vitals, Backpack, shotDamage, HP_MAX, EP_MAX, USE_TIME, ITEM_CAP, ITEM_NAMES, fallDamage, explosionDamage } from './logic/combat.js';
 import { buildScenery } from './scenery.js';
-import { DROP, newDrop, openChute, stepDrop, heliAt } from './logic/airdrop.js';
-import { createHeli, createChute, DOOR } from './airdrop.js';
+import { DROP, CABIN, SLOTS, slotFor, newDrop, openChute, stepDrop, heliAt } from './logic/airdrop.js';
+import { createHeli, createChute } from './airdrop.js';
 import { Loadout, WEAPONS, WEAPON_IDS, zoomFor } from './logic/weapons.js';
 import { Stats } from './logic/scoring.js';
 import { resolveMovement, rayBoxes, rayShot, groundHeight, makeBox, makeCircle, terrainAt } from './logic/collision.js';
@@ -686,7 +686,7 @@ const state = {
 let prevWeaponIndex = -1;
 
 // ------------------------------------------------------------------ queda de helicoptero (inicio da partida)
-const drop = { phase: null, ht: 0, d: null };      // phase: 'heli' | 'fall' | 'chute' | null
+const drop = { phase: null, ht: 0, d: null, tilt: 0 };      // phase: 'heli' | 'fall' | 'chute' | null
 const heli = createHeli(scene);
 const playerChute = createChute(); scene.add(playerChute);
 const dropBtn = document.createElement('div');
@@ -704,7 +704,7 @@ function beginDrop() {
   heli.show(true); heli.setInside(true);
   view.yaw = -Math.PI / 2; view.pitch = -0.5;
   scene.fog.near = 380; scene.fog.far = 1300;
-  character.root.visible = false; playerChute.visible = false;
+  character.root.visible = true; playerChute.visible = false; drop.tilt = 0;
   if (bots.enabled) bots.dropStart();
   showDropBtn();
 }
@@ -716,10 +716,11 @@ function endDrop(hideHeli = true) {
   showDropBtn();
   if (camera.fov !== TP_FOV) { camera.fov = TP_FOV; camera.updateProjectionMatrix(); }
 }
+const hpNow = () => heliAt(drop.ht);
 function dropAction() {
   if (drop.phase === 'heli') {
     drop.phase = 'fall';
-    drop.d = newDrop(player.x, player.y, player.z);
+    drop.d = newDrop(hpNow().x + 1.2, player.y, player.z);
     heli.setInside(false); character.root.visible = true;
     view.pitch = 0.1;
     audio.jump();
@@ -1784,7 +1785,8 @@ function update(dt) {
     const hp = heliAt(drop.ht);
     state.grounded = false; state.airK = 0; wasAir = false; fallPeak = 0; player.vx = player.vz = 0; player.speed = 0;
     if (drop.phase === 'heli') {
-      player.x = hp.x + DOOR.x; player.y = hp.y; player.z = hp.z + DOOR.z; player.vy = 0;
+      const sl = online.active && online.you ? slotFor(online.you) : SLOTS[0];
+      player.x = hp.x + sl.x; player.y = hp.y; player.z = hp.z + sl.z; player.vy = 0;
       if (hp.end) dropAction();
     } else {
       const d = drop.d;
@@ -1796,7 +1798,7 @@ function update(dt) {
       player.x = d.x; player.y = d.y; player.z = d.z; player.vy = d.vy;
       if (d.phase === 'chute' && drop.phase === 'fall') { drop.phase = 'chute'; if (d.auto) toast('PARAQUEDAS ABERTO'); showDropBtn(); }
       playerChute.visible = d.phase === 'chute';
-      playerChute.position.set(d.x, d.y, d.z); playerChute.rotation.y = view.yaw; playerChute.scale.setScalar(0.2 + 0.8 * d.open);
+      playerChute.position.set(d.x, d.y, d.z); playerChute.rotation.y = player.hipsYaw; playerChute.chute.scale.setScalar(0.2 + 0.8 * d.open);
       if (land) { player.y = gY; player.vy = 0; state.grounded = true; endDrop(false); }
     }
   } else {
@@ -1884,7 +1886,8 @@ function update(dt) {
   // deitado (posicao de atirador de elite): o corpo deita para a frente
   character.proneK = state.proneK;
   character.root.rotation.order = 'YXZ';
-  character.root.rotation.x = -1.45 * state.proneK;
+  drop.tilt += ((drop.phase === 'fall' ? 0.5 : drop.phase === 'chute' ? 0.06 : 0) - drop.tilt) * Math.min(1, 3 * dt);   // queda de barriga para baixo, so um pouco inclinado
+  character.root.rotation.x = -1.45 * state.proneK - drop.tilt;
   if (character.stepEvent !== state.lastStep) {
     state.lastStep = character.stepEvent;
     audio.step(player.speed > 3.2);
@@ -1941,10 +1944,16 @@ function update(dt) {
 
 function updateCamera(dt, pitch) {
   const yaw = view.yaw;
-  if (drop.phase === 'heli') {                 // primeira pessoa na porta do helicoptero
-    camera.position.set(player.x, player.y + 1.65, player.z);
+  if (drop.phase === 'heli') {                 // terceira pessoa dentro da cabine (camera fica presa dentro das paredes)
+    forwardFrom(yaw, pitch, _fwd);
+    const hp = heliAt(drop.ht);
+    const px = player.x, py = player.y + 1.55, pz = player.z;
+    const cx = clamp(px - _fwd.x * 2.3, hp.x - CABIN.W + 0.2, hp.x + CABIN.W + 0.1);
+    const cz = clamp(pz - _fwd.z * 2.3, hp.z - CABIN.L + 0.3, hp.z + CABIN.L - 0.3);
+    const cy = clamp(py - _fwd.y * 2.3, player.y + 0.4, player.y + CABIN.H - 0.2);
+    camera.position.set(cx, cy, cz);
     camera.rotation.set(pitch, yaw, 0, 'YXZ');
-    if (camera.fov !== 78) { camera.fov = 78; camera.updateProjectionMatrix(); }
+    if (Math.abs(camera.fov - 84) > 0.05) { camera.fov = 84; camera.updateProjectionMatrix(); }
     return;
   }
   _rgt.set(Math.cos(yaw), 0, -Math.sin(yaw));
@@ -1955,7 +1964,7 @@ function updateCamera(dt, pitch) {
   const off = (side === Infinity ? 0.42 : clamp(side - 0.12, 0, 0.42)) * state.alignK;
   const pivot = _v2.copy(base).addScaledVector(_rgt, off);
   // posicao desejada atras do jogador
-  const wantDist = 2.5;
+  const wantDist = drop.phase ? 4.8 : 2.5;
   const back = _v3.copy(_fwd).multiplyScalar(-1);
   back.y += 0.12;
   back.normalize();
@@ -1978,7 +1987,7 @@ function updateCamera(dt, pitch) {
   camera.position.lerpVectors(tp, _eye, s);
   camera.rotation.set(pitch, yaw, 0, 'YXZ');
   if (shakeT > 0) { shakeT -= dt; const k = shakeT * 0.09; camera.position.x += (Math.random() - 0.5) * k; camera.position.y += (Math.random() - 0.5) * k; }
-  const fov = TP_FOV + (adsFov(state.gelMode ? 1 : loadout.zoom) - TP_FOV) * s;
+  const fov = (drop.phase ? 84 : TP_FOV) + (adsFov(state.gelMode ? 1 : loadout.zoom) - TP_FOV) * s;
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
 }
 
@@ -2123,7 +2132,7 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v21';
+    if (el) el.textContent = fps + ' fps · v22';
     if (state.started && !state.paused) {
       adaptT += 1;
       const prev = resScale;

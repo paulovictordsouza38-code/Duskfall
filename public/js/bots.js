@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { Actor } from './actors.js';
 import { WEAPONS } from './logic/weapons.js';
 import { rayVsPlayer, shotDamage, HP_MAX } from './logic/combat.js';
-import { DROP, newDrop, stepDrop } from './logic/airdrop.js';
+import { DROP, SLOTS, newDrop, stepDrop } from './logic/airdrop.js';
 import { createChute } from './airdrop.js';
 import { resolveMovement, rayBoxes, rayShot, groundHeight } from './logic/collision.js';
 
@@ -64,19 +64,19 @@ export class BotManager {
 
   /** todos os bots comecam dentro do helicoptero e pulam em momentos diferentes */
   dropStart() {
-    for (const b of this.bots) {
-      b.ai.drop = { phase: 'wait', delay: 0.5 + this.rand() * 11, openAt: DROP.OPEN_H + this.rand() * 35, d: null, goal: this._spawnPoint(null) };
-      b.root.visible = false; b.place(0, 600, 0, 0);
-    }
+    this.bots.forEach((b, i) => {
+      b.ai.drop = { phase: 'wait', slot: SLOTS[(i + 1) % SLOTS.length], delay: 1 + this.rand() * 20, openAt: DROP.OPEN_H + this.rand() * 35, d: null, goal: this._spawnPoint(null) };
+      b.root.visible = true; b.place(0, 600, 0, -Math.PI / 2);
+    });
   }
 
   _dropStep(b, dt, heli) {
     const dr = b.ai.drop;
     if (dr.phase === 'wait') {
-      b.root.visible = false;
       dr.delay -= dt;
-      if (dr.delay > 0 || !heli) return;
-      dr.d = newDrop(heli.x + 1 + (this.rand() - 0.5), heli.y, heli.z + (this.rand() - 0.5) * 1.5);
+      if (heli) b.place(heli.x + dr.slot.x, heli.y, heli.z + dr.slot.z, -Math.PI / 2);   // em pe dentro da cabine, olhando a porta
+      if (dr.delay > 0 || !heli) { b.update(dt, this.t); return; }
+      dr.d = newDrop(heli.x + 1.2, heli.y, heli.z + dr.slot.z);
       dr.phase = 'go'; b.root.visible = true; b.hp = Math.round(HP_MAX * 0.6);
     }
     const d = dr.d;
@@ -85,7 +85,7 @@ export class BotManager {
     const land = stepDrop(d, dt, groundHeight(d.x, d.z, d.y, this.o.colliders), gl > 0.01 ? gx / gl * k : 0, gl > 0.01 ? gz / gl * k : 0, dr.openAt);
     if (!b.chute) { b.chute = createChute(); b.root.add(b.chute); }
     b.chute.visible = d.phase === 'chute';
-    b.chute.scale.setScalar(0.2 + 0.8 * d.open);
+    b.chute.chute.scale.setScalar(0.2 + 0.8 * d.open);
     const yaw = gl > 1 ? Math.atan2(-gx, -gz) : b.yaw;
     b.place(d.x, d.y, d.z, yaw);
     b.update(dt, this.t);

@@ -4,7 +4,9 @@
 // Materiais do exterior ignoram a nevoa da sala (fog:false) e usam "brilho proprio" leve, assim
 // nao dependem das luzes internas e o visual da sala nao muda.
 import * as THREE from 'three';
-import { makeBox, makeCircle } from './logic/collision.js';
+import { makeBox, makeCircle, setTerrain } from './logic/collision.js';
+import { terrainHeight, buildTerrainGrid } from './logic/terrain.js';
+import { buildRegiao } from './logic/regiao.js';
 import { buildCasas } from './logic/casas.js';
 
 function rng(seed) {
@@ -144,6 +146,8 @@ export function buildScenery(scene, lib, renderer) {
   };
 
   const unit = new THREE.BoxGeometry(1, 1, 1);
+  setTerrain(terrainHeight);                 // o relevo vale para jogador, bots, itens, granadas e tiros
+  const regiao = buildRegiao();
 
   // ---------------------------------------------------------------- ceu
   const skyTex = gradientTexture([
@@ -179,22 +183,42 @@ export function buildScenery(scene, lib, renderer) {
 
   // ---------------------------------------------------------------- chao
   const groundTex = concreteSet.map.clone();
-  groundTex.repeat.set(40, 40);
+  groundTex.repeat.set(1, 1);
   groundTex.needsUpdate = true;
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(420, 260),
-    mat(0x6b5c4b, groundTex, 0.1, 0.4),
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.set(0, -0.01, -17 - 130);
-  root.add(ground);
+  {
+    // chao com relevo: malha de 3 m em volta da area jogavel + planos simples (sem relevo) mais longe
+    const g = buildTerrainGrid(-84, 84, -312, -17, 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(g.pos, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(g.uv, 2));
+    geo.setAttribute('color', new THREE.BufferAttribute(g.col, 3));
+    geo.setIndex(new THREE.BufferAttribute(g.idx, 1));
+    geo.computeBoundingSphere();
+    const tm = new THREE.MeshBasicMaterial({ map: groundTex, vertexColors: true, color: 0xb0a090, fog: false });
+    const terrain = new THREE.Mesh(geo, tm);
+    terrain.name = 'relevo';
+    terrain.userData.noMerge = true; terrain.userData.noAuto = true;
+    root.add(terrain);
+    const farMat = new THREE.MeshBasicMaterial({ map: groundTex, color: 0xb0a090, fog: false });
+    const farPlane = (x0, x1, z0, z1) => {
+      const pg = new THREE.PlaneGeometry(x1 - x0, z1 - z0, 1, 1);
+      const uv = pg.attributes.uv;
+      pg.rotateX(-Math.PI / 2);
+      const pp = pg.attributes.position;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, (pp.getX(i) + (x0 + x1) / 2) / 10.5, (pp.getZ(i) + (z0 + z1) / 2) / 10.5);
+      const m = new THREE.Mesh(pg, farMat);
+      m.position.set((x0 + x1) / 2, -0.01, (z0 + z1) / 2);
+      root.add(m);
+    };
+    farPlane(-420, -84, -420, -17); farPlane(84, 420, -420, -17); farPlane(-84, 84, -420, -312);
+  }
 
   // limites: so se pode ir para fora pelas janelas do fundo; blocos invisiveis fecham as laterais e o perimetro
   colliders.push(makeBox(-70, -17, -8, 45));            // fora da lateral esquerda da sala
   colliders.push(makeBox(8, -17, 70, 45));              // fora da lateral direita da sala
-  colliders.push(makeBox(-70, -121, 70, -120));         // fundo do terreno
-  colliders.push(makeBox(-71, -121, -70, 45));
-  colliders.push(makeBox(70, -121, 71, 45));
+  colliders.push(makeBox(-70, -306, 70, -305, -30, 40));   // fundo da regiao nova (a ravina e as pontes ligam as duas partes)
+  colliders.push(makeBox(-71, -306, -70, 45, -30, 40));
+  colliders.push(makeBox(70, -306, 71, 45, -30, 40));
 
   // ---------------------------------------------------------------- materiais
   const mConcrete = mat(0x8a857d, concreteSet.map, 0.12, 0.36);
@@ -885,6 +909,11 @@ export function buildScenery(scene, lib, renderer) {
     bagRb.build(mRust, unit, root);
     bagJersey.build(mConcrete, unit, root);
     bagPipe.build(mConcreteFar, cylGeo, root);
+    for (const d of regiao.drums) {              // barris da regiao nova (caminho, patios, galpoes e hangar)
+      bagDrum.box(d.x, 0.45, d.z, 0.62, 0.9, 0.62);
+      colliders.push(d.col);
+      drums.push({ x: d.x, z: d.z, r: d.r, h: d.h, idx: bagDrum.mats.length - 1, col: d.col });
+    }
     drumMesh = bagDrum.build(mRustFar, cylGeo, root);
     bagCont.forEach((b, i) => b.build(mCont[i], unit, root));
   }
@@ -906,6 +935,18 @@ export function buildScenery(scene, lib, renderer) {
     for (const c of casas.colliders) colliders.push(c);
   }
 
+  // ---------------------------------------------------------------- F) regiao nova: ruas, pontes, pista, hangar e galpoes
+  {
+    const matOf = {
+      asphalt: mat(0x3b3c3f, null, 0.1, 0.32), mark: mat(0xe6dfc2, null, 0, 0.55), metal: mat(0x7a858f, metalSet.map, 0.15, 0.34, 0.8, 0.4),
+      roof: mat(0x565c62, metalSet.map, 0.2, 0.3, 0.8, 0.4), rail: mRust, junk: mRust, wall: mConcrete,
+    };
+    const bags = {};
+    for (const b of regiao.boxes) (bags[b.mat] || (bags[b.mat] = new Bag())).box(b.cx, b.cy, b.cz, b.sx, b.sy, b.sz);
+    for (const k of Object.keys(bags)) { const im = bags[k].build(matOf[k], unit, root); if (im) im.frustumCulled = true; }
+    for (const c of regiao.colliders) colliders.push(c);
+  }
+
   // ---------------------------------------------------------------- silhuetas distantes
   {
     const r = rng(131);
@@ -914,11 +955,11 @@ export function buildScenery(scene, lib, renderer) {
       const x = -140 + i * 11 + (r() - 0.5) * 6;
       const h = 8 + Math.pow(r(), 1.6) * 38;
       const w = 6 + r() * 9;
-      bag.box(x, h / 2, -150 - r() * 15, w, h, 7 + r() * 5);
+      bag.box(x, h / 2, -325 - r() * 15, w, h, 7 + r() * 5);
     }
     // chaminés
-    bag.box(-60, 22, -142, 2.2, 44, 2.2);
-    bag.box(70, 18, -146, 2, 36, 2);
+    bag.box(-60, 22, -318, 2.2, 44, 2.2);
+    bag.box(70, 18, -322, 2, 36, 2);
     bag.build(mat(0x3a3440, null, 0.55, 0.3), unit, root);
   }
 
@@ -949,5 +990,5 @@ export function buildScenery(scene, lib, renderer) {
     }
   }
 
-  return { root, update, colliders, elevators, drums, getDrumMesh: () => drumMesh, casaLoot: casas.loot };
+  return { root, update, colliders, elevators, drums, getDrumMesh: () => drumMesh, casaLoot: casas.loot, regiaoLoot: regiao.loot };
 }

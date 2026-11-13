@@ -93,6 +93,7 @@ export class Input {
       else if (code === 'KeyC') this.actions.push('crouch');
       else if (code === 'KeyZ') this.actions.push('prone');
       else if (code === 'KeyF') this.actions.push('heal');
+      else if (code === 'KeyE') this.actions.push('loot');
       else if (code === 'KeyG') this.actions.push('frag');
       else if (code === 'KeyV') this.actions.push('gel');
       else if (code === 'KeyB' || code === 'Tab') { this.actions.push('pack'); e.preventDefault && e.preventDefault(); }

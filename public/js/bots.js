@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { Actor } from './actors.js';
 import { WEAPONS } from './logic/weapons.js';
 import { rayVsPlayer, shotDamage, HP_MAX } from './logic/combat.js';
-import { resolveMovement, rayBoxes, rayShot } from './logic/collision.js';
+import { resolveMovement, rayBoxes, rayShot, groundHeight } from './logic/collision.js';
 
 const BOT_WEAPONS = ['mp5', 'xm8', 'famas', 'scar', 'mp40', 'g18', 'usp', 'mp5', 'xm8', 'awm'];
 const _m = new THREE.Vector3();
@@ -53,7 +53,7 @@ export class BotManager {
     const w = this._spawnPoint(avoid);
     b.revive();
     b.hp = Math.round(HP_MAX * 0.6);   // bots mais frageis
-    b.place(w.x + (this.rand() - 0.5) * 2, 0, w.z + (this.rand() - 0.5) * 2, this.rand() * Math.PI * 2);
+    { const sx = w.x + (this.rand() - 0.5) * 2, sz = w.z + (this.rand() - 0.5) * 2; b.place(sx, groundHeight(sx, sz, 0, this.o.colliders), sz, this.rand() * Math.PI * 2); }
     b.setWeapon(BOT_WEAPONS[Math.floor(this.rand() * BOT_WEAPONS.length)]);
     b.ai.goal = null; b.ai.cool = 1.2; b.ai.seenT = -9;
     b.root.visible = true;
@@ -194,7 +194,7 @@ export class BotManager {
         b.x = p.x; b.z = p.z;
       }
       b.speed += ((moved / dt) - b.speed) * Math.min(1, 8 * dt);
-      b.place(b.x, 0, b.z, b.yaw);
+      b.place(b.x, groundHeight(b.x, b.z, b.y || 0, this.o.colliders), b.z, b.yaw);   // acompanha morros, ravina e degraus
       // preso: troca de destino
       ai.stuckT += dt;
       if (ai.stuckT > 1.5) {

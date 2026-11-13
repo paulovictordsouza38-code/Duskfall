@@ -1,7 +1,7 @@
 // Itens espalhados pelo mapa: armas, mira 4x e caixas de municao (curta e longa). Posicoes sorteadas com semente fixa
 // (sempre as mesmas), longe de paredes/objetos solidos, em 9 setores do terreno + dentro da sala de tiro.
 import * as THREE from 'three';
-import { resolveMovement } from './logic/collision.js';
+import { resolveMovement, terrainAt } from './logic/collision.js';
 import { createUSP, createMP40 } from './weapons3d.js';
 import { GUN_BUILDERS, createScope4x } from './guns.js';
 import { WEAPON_IDS } from './logic/weapons.js';
@@ -9,6 +9,32 @@ import { WEAPON_IDS } from './logic/weapons.js';
 function rng(seed) {
   let s = seed >>> 0;
   return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+}
+
+/** Chumbo escuro com uma caveira e ossos cruzados (desenhada em canvas). */
+function skullTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#464c52'; g.fillRect(0, 0, 128, 128);
+  g.strokeStyle = '#2c3034'; g.lineWidth = 6; g.strokeRect(3, 3, 122, 122);
+  g.strokeStyle = '#8a929a'; g.lineWidth = 2; g.strokeRect(9, 9, 110, 110);
+  // ossos cruzados
+  g.strokeStyle = '#d9d9cf'; g.lineWidth = 9; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(26, 98); g.lineTo(102, 56); g.moveTo(102, 98); g.lineTo(26, 56); g.stroke();
+  g.fillStyle = '#d9d9cf';
+  for (const [x, y] of [[24, 100], [104, 100], [24, 54], [104, 54]]) { g.beginPath(); g.arc(x, y, 7, 0, Math.PI * 2); g.fill(); }
+  // caveira
+  g.fillStyle = '#ecece4';
+  g.beginPath(); g.ellipse(64, 54, 27, 25, 0, 0, Math.PI * 2); g.fill();
+  g.fillRect(46, 66, 36, 26);
+  g.fillStyle = '#20252a';
+  g.beginPath(); g.arc(53, 54, 8, 0, Math.PI * 2); g.arc(75, 54, 8, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.moveTo(64, 62); g.lineTo(59, 72); g.lineTo(69, 72); g.closePath(); g.fill();
+  g.fillRect(51, 82, 2.5, 10); g.fillRect(58, 82, 2.5, 10); g.fillRect(65.5, 82, 2.5, 10); g.fillRect(73, 82, 2.5, 10);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 function buildRig(id, lib) {
@@ -31,11 +57,9 @@ export function createPickups(scene, lib, colliders) {
   const bandG = new THREE.MeshStandardMaterial({ color: 0x3e8f45, roughness: 0.5 });
   const crateGeo = new THREE.BoxGeometry(0.46, 0.26, 0.32);
   const bandGeo = new THREE.BoxGeometry(0.47, 0.05, 0.33);
-  // caixa de loot de quem morreu: madeira escura com faixa vermelha (maior que as de municao)
-  const deathMat = new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 0.85, metalness: 0.05 });
-  const deathBand = new THREE.MeshStandardMaterial({ color: 0xc02a2a, roughness: 0.5, emissive: 0x401010, emissiveIntensity: 0.8 });
-  const deathGeo = new THREE.BoxGeometry(0.8, 0.5, 0.56);
-  const deathBandGeo = new THREE.BoxGeometry(0.82, 0.08, 0.58);
+  // caixa de loot de quem morreu: menor, cinza-chumbo, com uma caveira desenhada em todas as faces
+  const deathMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: skullTexture(), roughness: 0.55, metalness: 0.55 });
+  const deathGeo = new THREE.BoxGeometry(0.5, 0.3, 0.36);
 
   const cache = {};
   const C = (key, fn) => cache[key] || (cache[key] = fn());   // geometria/material compartilhados: menos memoria e menos trocas na GPU
@@ -44,14 +68,10 @@ export function createPickups(scene, lib, colliders) {
     return !resolveMovement(p, 0.95, colliders, 1, 0);
   }
 
-  function add(type, id, x, z, extra = {}) {
-    const g = new THREE.Group();
-    g.userData.dynamic = true;
-    const gy = extra.gy || 0;
-    g.position.set(x, gy, z);
+  /** Desenho 3D de um item (usado no mapa e nos icones da pre-visualizacao). */
+  function makeVisual(type, id) {
     const body = new THREE.Group();
     body.position.y = 0.95;
-    g.add(body);
     let ringColor = 0xff7a2a;
     if (type === 'weapon') {
       const rig = buildRig(id, lib);
@@ -85,12 +105,9 @@ export function createPickups(scene, lib, colliders) {
       body.add(gm, cap);
       ringColor = gel ? 0x66ddff : 0xff8a2a;
     } else if (type === 'crate') {
-      body.position.y = 0.42;
-      const cb = new THREE.Mesh(deathGeo, deathMat);
-      const cs = new THREE.Mesh(deathBandGeo, deathBand);
-      cs.position.y = 0.0;
-      body.add(cb, cs);
-      ringColor = 0xff3a3a;
+      body.position.y = 0.3;
+      body.add(new THREE.Mesh(deathGeo, deathMat));
+      ringColor = 0xb8c2cc;
     } else {
       body.position.y = 0.5;
       const box = new THREE.Mesh(crateGeo, crateMat);
@@ -101,6 +118,17 @@ export function createPickups(scene, lib, colliders) {
       if (id === 'long') { box.scale.set(1.15, 1.15, 1.15); band.scale.set(1.15, 1.15, 1.15); }
       ringColor = id === 'long' ? 0x6ee06e : 0xffd23a;
     }
+    return { body, ringColor };
+  }
+
+  function add(type, id, x, z, extra = {}) {
+    const g = new THREE.Group();
+    g.userData.dynamic = true;
+    const gy = extra.gy === undefined ? terrainAt(x, z) : extra.gy;   // morros: o item acompanha o chao
+    g.position.set(x, gy, z);
+    const vis = makeVisual(type, id);
+    const body = vis.body, ringColor = vis.ringColor;
+    g.add(body);
     const ring = new THREE.Mesh(ringGeo, ringMat(ringColor));
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.03;
@@ -113,10 +141,10 @@ export function createPickups(scene, lib, colliders) {
   }
 
   /** Larga um item no chao (descarte ou arma trocada). Fica sem poder ser pego por 3 s. */
-  function drop(type, id, x, z, time = 0, gy = 0) {
+  function drop(type, id, x, z, time = 0, gy) {
     const dropped = items.filter((i) => i.dropped && i.type !== 'crate');
     if (dropped.length > 40) { const o = dropped[0]; root.remove(o.group); items.splice(items.indexOf(o), 1); }
-    const it = add(type, id, x, z, { dropped: true, retry: time + 3, gy });
+    const it = add(type, id, x, z, { dropped: true, retry: time + 3, ...(gy === undefined ? {} : { gy }) });
     return it;
   }
 
@@ -124,7 +152,7 @@ export function createPickups(scene, lib, colliders) {
   function dropCrate(x, z, gy, contents, cid = '') {
     const old = items.filter((i) => i.type === 'crate');
     if (old.length >= 24) { const o = old[0]; root.remove(o.group); items.splice(items.indexOf(o), 1); }
-    return add('crate', 'loot', x, z, { dropped: true, retry: 0, gy, contents, cid });
+    return add('crate', 'loot', x, z, { dropped: true, retry: 0, ...(gy === undefined ? {} : { gy }), contents, cid });
   }
 
   // ---- 1) fixos: MP40 no meio da sala (como antes)
@@ -213,8 +241,23 @@ export function createPickups(scene, lib, colliders) {
     drop,
     dropCrate,
     remove(it) { const k = items.indexOf(it); if (k >= 0) { root.remove(it.group); items.splice(k, 1); } },
+    /** Itens ao alcance (pre-visualizacao). Mais perto primeiro. */
+    nearby(x, z, y, time = 0, maxN = 3) {
+      const out = [];
+      for (const it of items) {
+        if (!it.active || (it.retry && it.retry > time)) continue;
+        if (Math.abs(y - (it.gy || 0)) > 1.6) continue;
+        const dx = it.x - x, dz = it.z - z;
+        const r = it.type === 'weapon' || it.type === 'scope' || it.type === 'crate' ? 1.7 : 1.4;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < r * r) out.push([d2, it]);
+      }
+      out.sort((a, b) => a[0] - b[0]);
+      return out.slice(0, maxN).map((o) => o[1]);
+    },
+    visual: makeVisual,
     /** Item fixo em andar alto / laje (gy = altura do piso). */
-    place(type, id, x, z, gy = 0) { return add(type, id, x, z, { gy }); },
+    place(type, id, x, z, gy) { return add(type, id, x, z, gy === undefined ? {} : { gy }); },
     WEAPON_IDS,
   };
 }

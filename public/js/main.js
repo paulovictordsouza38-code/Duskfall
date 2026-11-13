@@ -8,6 +8,7 @@ import { SoldadoSkin } from './soldado.js';
 import { createUSP, createMP40 } from './weapons3d.js';
 import { GUN_BUILDERS } from './guns.js';
 import { createPickups } from './pickups.js';
+import { createIcons } from './icons.js';
 import { Effects } from './effects.js';
 import { GameAudio } from './audio.js';
 import { Input } from './input.js';
@@ -21,7 +22,7 @@ import { Vitals, Backpack, shotDamage, HP_MAX, EP_MAX, USE_TIME, ITEM_CAP, ITEM_
 import { buildScenery } from './scenery.js';
 import { Loadout, WEAPONS, WEAPON_IDS, zoomFor } from './logic/weapons.js';
 import { Stats } from './logic/scoring.js';
-import { resolveMovement, rayBoxes, rayShot, groundHeight, makeBox, makeCircle } from './logic/collision.js';
+import { resolveMovement, rayBoxes, rayShot, groundHeight, makeBox, makeCircle, terrainAt } from './logic/collision.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = THREE.MathUtils.clamp;
@@ -211,6 +212,14 @@ const pickups = createPickups(scene, lib, world.colliders);
     up: [['ammo', 'long'], ['gel', 'g'], ['weapon', 'mp5'], ['weapon', 'xm8'], ['medkit', 'k']],
     roof: [['weapon', 'awm'], ['weapon', 'scar'], ['scope', '4x'], ['weapon', 'famas'], ['ammo', 'long']],
   };
+  const rt = {
+    path: [['bandage', 'a'], ['ammo', 'short'], ['medkit', 'k'], ['frag', 'f'], ['ammo', 'long'], ['gel', 'g'], ['bandage', 'a']],
+    garage: [['ammo', 'long'], ['medkit', 'k'], ['frag', 'f'], ['gel', 'g'], ['ammo', 'short']],
+    garageRare: [['weapon', 'scar'], ['weapon', 'awm'], ['weapon', 'xm8'], ['scope', '4x']],
+    hangar: [['ammo', 'long'], ['medkit', 'k'], ['weapon', 'famas'], ['frag', 'f'], ['weapon', 'mp5'], ['ammo', 'short']],
+    hangarRare: [['weapon', 'awm'], ['scope', '4x']],
+  };
+  (scenery.regiaoLoot || []).forEach((l, i) => { const t = rt[l.tier] || rt.path; const [ty, id] = t[i % t.length]; pickups.place(ty, id, l.x, l.z); });
   (scenery.casaLoot || []).forEach((l, i) => { const t = tiers[l.tier]; const [ty, id] = t[(l.house * 3 + i) % t.length]; pickups.place(ty, id, l.x, l.z, l.y); });
 }
 const stats = new Stats();
@@ -307,6 +316,7 @@ function makeToxicTex() {
 }
 function placeToxicBarrels(count) {
   const free = (x, z) => {
+    if (Math.abs(terrainAt(x, z)) > 0.03) return false;            // barril so em chao plano
     for (const c of world.colliders) {
       if (c.minY > 1.2 || c.maxY < 0.1) continue;
       if (x > c.minX - 0.5 && x < c.maxX + 0.5 && z > c.minZ - 0.5 && z < c.maxZ + 0.5) return false;
@@ -410,31 +420,137 @@ function botCrateContents(b) {
   const items = { bandage: Math.random() < 0.6 ? 1 : 0, medkit: Math.random() < 0.3 ? 1 : 0, frag: Math.random() < 0.4 ? 1 : 0, gel: Math.random() < 0.2 ? 1 : 0 };
   return { guns: [{ id, mag: cfg.magSize, reserve: Math.round(cfg.reserve * 0.5) }], items, scope4x: false };
 }
-/** Pega o conteudo de uma caixa. O que nao couber (mochila cheia) fica na caixa. */
-function openCrate(it) {
-  const c = it.contents; if (!c) return false;
-  let took = false;
-  const left = { guns: [], items: { ...c.items }, scope4x: c.scope4x };
-  for (const g of c.guns) {
-    const idx = WEAPON_IDS.indexOf(g.id);
-    if (idx < 0) continue;
+// ---- pre-visualizacao do loot (sem botoes): toque no icone (ou tecla E) para pegar/trocar; andar para longe = nao pegar
+const icons = createIcons(renderer, (t, i) => pickups.visual(t, i));
+const lootEl = $('lootPanel');
+let lootEntries = [];
+let lootSig = '';
+const ICON_WARM = [['weapon', 'usp'], ['weapon', 'mp40'], ['weapon', 'g18'], ['weapon', 'mp5'], ['weapon', 'xm8'], ['weapon', 'famas'], ['weapon', 'scar'], ['weapon', 'awm'], ['scope', '4x'], ['ammo', 'short'], ['ammo', 'long'], ['bandage', 'a'], ['medkit', 'k'], ['frag', 'f'], ['gel', 'g'], ['crate', 'loot']];
+const ITEM_LABEL = { bandage: 'ATADURA', medkit: 'KIT MÉDICO', frag: 'GRANADA', gel: 'GEL' };
+function itemLabel(type, id) {
+  if (type === 'weapon') return WEAPONS[id] ? WEAPONS[id].name : id;
+  if (type === 'ammo') return id === 'long' ? 'MUNIÇÃO LONGA' : 'MUNIÇÃO CURTA';
+  if (type === 'scope') return 'MIRA 4x';
+  return ITEM_LABEL[type] || type;
+}
+function lootNearby() {
+  const out = [];
+  for (const it of pickups.nearby(player.x, player.z, player.y, state.time, 3)) {
+    if (it.type === 'crate' && it.contents) {
+      for (const g of it.contents.guns) out.push({ k: 'cgun', it, g });
+      for (const kind of ['bandage', 'medkit', 'frag', 'gel']) if (it.contents.items[kind] > 0) out.push({ k: 'citem', it, kind, n: it.contents.items[kind] });
+      if (it.contents.scope4x) out.push({ k: 'cscope', it });
+    } else out.push({ k: 'item', it });
+  }
+  return out.slice(0, 7);
+}
+/** Descricao de uma entrada: icone, nome, quantidade e (se for arma) o que seria trocado. */
+function describeEntry(e) {
+  if (e.k === 'item') {
+    const t = e.it.type, id = e.it.id;
+    const d = { type: t, id, name: itemLabel(t, id), sub: '' };
+    if (t === 'weapon') {
+      const idx = WEAPON_IDS.indexOf(id), dr = loadout.wouldDrop(idx);
+      if (dr === null) d.sub = '+ MUNIÇÃO'; else if (dr >= 0) { d.swap = WEAPON_IDS[dr]; d.sub = 'TROCA'; } else d.sub = 'NOVA';
+    }
+    return d;
+  }
+  if (e.k === 'cgun') {
+    const idx = WEAPON_IDS.indexOf(e.g.id), dr = loadout.wouldDrop(idx);
+    const d = { type: 'weapon', id: e.g.id, name: itemLabel('weapon', e.g.id), sub: e.g.mag + '/' + e.g.reserve };
+    if (dr === null) d.sub = '+ MUNIÇÃO'; else if (dr >= 0) { d.swap = WEAPON_IDS[dr]; d.sub = 'TROCA ' + e.g.mag + '/' + e.g.reserve; }
+    return d;
+  }
+  if (e.k === 'citem') return { type: e.kind, id: 'x', name: ITEM_LABEL[e.kind], sub: '×' + e.n };
+  return { type: 'scope', id: '4x', name: 'MIRA 4x', sub: '' };
+}
+function updateLootPanel(dead) {
+  if (!lootEl) return;
+  if (state.started && !state.paused) icons.warm(ICON_WARM);          // 1 icone por quadro ate todos estarem prontos
+  lootEntries = dead || state.paused || !state.started ? [] : lootNearby();
+  let sig = '';
+  const ds = lootEntries.map((e) => { const d = describeEntry(e); sig += d.type + d.id + d.name + d.sub + (d.swap || '') + '|'; return d; });
+  if (sig === lootSig) return;
+  lootSig = sig;
+  if (!ds.length) { lootEl.style.display = 'none'; lootEl.textContent = ''; return; }
+  const img = (t, i, cls) => { const u = icons.url(t, i); return u ? '<img class="' + cls + '" src="' + u + '">' : ''; };
+  lootEl.innerHTML = ds.map((d, n) => '<div class="lp" data-i="' + n + '">' + img(d.type, d.id, 'lpi') + '<b>' + d.name + '</b>' +
+    (d.sub ? '<i>' + (d.swap ? '⇄ ' + img('weapon', d.swap, 'lps') : '') + d.sub + '</i>' : '') + '</div>').join('');
+  lootEl.style.display = 'flex';
+}
+if (lootEl) {
+  lootEl.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const t = e.target.closest ? e.target.closest('.lp') : null;
+    if (t) { const en = lootEntries[+t.dataset.i]; if (en) takeLoot(en); }
+  });
+}
+/** Entrega um item solto do mapa. Retorna true se foi consumido. */
+function giveItem(type, id) {
+  if (type === 'bandage' || type === 'medkit' || type === 'frag' || type === 'gel') {
+    if (pack.add(type, 1) > 0) { audio.pickup(); toast('+ ' + ITEM_NAMES[type].toUpperCase()); return true; }
+    toast('MOCHILA CHEIA'); return false;
+  }
+  if (type === 'ammo') {
+    const got = loadout.addAmmo(id);
+    if (got > 0) { audio.pickup(); toast(id === 'long' ? '+ MUNIÇÃO LONGA (fuzis e AWM)' : '+ MUNIÇÃO CURTA (pistolas e SMG)'); return true; }
+    toast('MUNIÇÃO CHEIA'); return false;
+  }
+  if (type === 'scope') {
+    if (loadout.has4x) { toast('VOCÊ JÁ TEM A MIRA 4x'); return false; }
+    loadout.has4x = true; pack.scope4x = true; audio.pickup(); toast('MIRA 4x PEGA — vale só para FAMAS e SCAR'); return true;
+  }
+  const idx = WEAPON_IDS.indexOf(id);
+  if (idx < 0) return false;
+  const nm = WEAPONS[id].name;
+  if (loadout.owned[idx]) {
+    const got = loadout.addAmmo(id);
+    if (got > 0) { audio.pickup(); toast('+ MUNIÇÃO ' + nm); return true; }
+    toast('MUNIÇÃO CHEIA'); return false;
+  }
+  const pr = loadout.pickUp(idx);
+  if (pr && pr.dropped >= 0) { dropItem('weapon', WEAPON_IDS[pr.dropped]); toast(WEAPONS[WEAPON_IDS[pr.dropped]].name + ' LARGADA'); }
+  audio.pickup();
+  switchWeapon(idx);
+  toast(nm + ' PEGA!  (tecla ' + (idx + 1) + ')');
+  return true;
+}
+function crateDone(it) {
+  if (!crateIsEmpty(it.contents)) return;
+  if (it.cid && online.active) net.send({ t: 'ev', k: 'cget', d: { id: it.cid } });
+  pickups.remove(it);
+}
+/** Pega UMA coisa da pre-visualizacao. */
+function takeLoot(e) {
+  if (match.dead || !e || !e.it.active) return false;
+  const it = e.it;
+  if (e.k === 'item') { if (giveItem(it.type, it.id)) { pickups.remove(it); return true; } return false; }
+  const c = it.contents;
+  if (!c) return false;
+  if (e.k === 'cgun') {
+    const g = e.g, idx = WEAPON_IDS.indexOf(g.id);
+    if (idx < 0) { c.guns.splice(c.guns.indexOf(g), 1); return false; }
     if (loadout.owned[idx]) {
-      const got = loadout.addAmmo(g.id);        // ja tem a arma: leva a municao
-      if (got > 0) took = true; else left.guns.push(g);
+      if (loadout.addAmmo(g.id) <= 0) { toast('MUNIÇÃO CHEIA'); return false; }
+      audio.pickup(); toast('+ MUNIÇÃO ' + WEAPONS[g.id].name);
     } else {
       const pr = loadout.pickUp(idx);
       loadout.states[idx].mag = g.mag; loadout.states[idx].reserve = g.reserve;
-      if (pr && pr.dropped >= 0) dropItem('weapon', WEAPON_IDS[pr.dropped]);
-      took = true;
+      if (pr && pr.dropped >= 0) { dropItem('weapon', WEAPON_IDS[pr.dropped]); toast(WEAPONS[WEAPON_IDS[pr.dropped]].name + ' LARGADA'); }
+      audio.pickup(); switchWeapon(idx); toast(WEAPONS[g.id].name + ' PEGA!');
     }
+    c.guns.splice(c.guns.indexOf(g), 1);
+  } else if (e.k === 'citem') {
+    const got = pack.add(e.kind, c.items[e.kind]);
+    if (got <= 0) { toast('MOCHILA CHEIA'); return false; }
+    c.items[e.kind] -= got; audio.pickup(); toast('+ ' + got + ' ' + ITEM_NAMES[e.kind].toUpperCase());
+  } else if (e.k === 'cscope') {
+    if (loadout.has4x) { toast('VOCÊ JÁ TEM A MIRA 4x'); return false; }
+    loadout.has4x = true; pack.scope4x = true; c.scope4x = false; audio.pickup(); toast('MIRA 4x PEGA');
   }
-  for (const k of Object.keys(left.items)) {
-    if (left.items[k] > 0) { const got = pack.add(k, left.items[k]); if (got > 0) took = true; left.items[k] -= got; }
-  }
-  if (left.scope4x && !loadout.has4x) { loadout.has4x = true; pack.scope4x = true; left.scope4x = false; took = true; }
-  else if (left.scope4x) { left.scope4x = true; }
-  it.contents = left;
-  return took;
+  crateDone(it);
+  lootSig = '';
+  return true;
 }
 function killPlayer() {
   { const c = myCrateContents(); if (c) spawnCrate(player.x, player.z, groundHeight(player.x, player.z, player.y, world.colliders), c, online.you + ':' + (++crateSeq) + ':' + Math.floor(Math.random() * 1e6), true); }
@@ -445,7 +561,7 @@ function killPlayer() {
 }
 function respawnPlayer() {
   const w = wps[Math.floor(Math.random() * wps.length)];
-  player.x = w.x; player.z = w.z; player.y = 0; player.vx = player.vz = player.vy = 0;
+  player.x = w.x; player.z = w.z; player.y = groundHeight(w.x, w.z, 0, world.colliders); player.vx = player.vz = player.vy = 0;
   vitals.reset(); pack.reset(); loadout.reset(); state.armed = true;
   prevWeaponIndex = -1; syncWeaponVisual();
   match.dead = false; fallPeak = 0; wasAir = false;
@@ -1144,7 +1260,8 @@ window.addEventListener('touchstart', () => {
 // ------------------------------------------------------------------ itens, mochila, HUD de combate
 function dropItem(type, id) {
   const fx0 = -Math.sin(view.yaw), fz0 = -Math.cos(view.yaw);
-  pickups.drop(type, id, player.x + fx0 * 1.3, player.z + fz0 * 1.3, state.time);
+  const dx = player.x + fx0 * 1.3, dz = player.z + fz0 * 1.3;
+  pickups.drop(type, id, dx, dz, state.time, groundHeight(dx, dz, player.y + 0.3, world.colliders));
 }
 function startUse(kind) {
   if (using || match.dead) return;
@@ -1404,6 +1521,7 @@ function update(dt) {
       else if (a === 'frag') toggleHand('frag');
       else if (a === 'gel') toggleGel();
       else if (a === 'pack') openPack();
+      else if (a === 'loot') { if (lootEntries.length) takeLoot(lootEntries[0]); }
     }
   }
 
@@ -1502,41 +1620,7 @@ function update(dt) {
   }
   // armas, mira 4x e mais municao espalhadas pelo mapa
   pickups.update(dt, state.time, player.x, player.z);
-  for (const c of (dead ? [] : pickups.collect(player.x, player.z, player.y, state.time))) {
-    if (c.type === 'bandage' || c.type === 'medkit' || c.type === 'frag' || c.type === 'gel') {
-      if (pack.add(c.type, 1) > 0) { audio.pickup(); toast('+ ' + ITEM_NAMES[c.type].toUpperCase()); }
-      else { pickups.release(c.item, state.time); }
-    } else if (c.type === 'ammo') {
-      const got = loadout.addAmmo(c.id);
-      if (got > 0) { audio.pickup(); toast(c.id === 'long' ? '+ MUNIÇÃO LONGA (fuzis e AWM)' : '+ MUNIÇÃO CURTA (pistolas e SMG)'); }
-      else { pickups.release(c.item, state.time); }
-    } else if (c.type === 'crate') {
-      if (openCrate(c.item)) {
-        audio.pickup(); toast('CAIXA DE LOOT');
-        syncWeaponVisual();
-        if (crateIsEmpty(c.item.contents)) { if (c.item.cid && online.active) net.send({ t: 'ev', k: 'cget', d: { id: c.item.cid } }); pickups.remove(c.item); }
-        else { pickups.release(c.item, state.time); toast('MOCHILA CHEIA — RESTO FICOU NA CAIXA'); }
-      } else { pickups.release(c.item, state.time); toast('MOCHILA CHEIA'); }
-    } else if (c.type === 'scope') {
-      if (loadout.has4x) { pickups.release(c.item, state.time); continue; }
-      loadout.has4x = true; pack.scope4x = true;
-      audio.pickup();
-      toast('MIRA 4x PEGA — vale só para FAMAS e SCAR');
-    } else {
-      const idx = WEAPON_IDS.indexOf(c.id);
-      const nm = WEAPONS[c.id].name;
-      if (loadout.owned[idx]) {
-        const got = loadout.addAmmo(c.id);
-        if (got > 0) { audio.pickup(); toast('+ MUNIÇÃO ' + nm); } else pickups.release(c.item, state.time);
-      } else {
-        const pr = loadout.pickUp(idx);
-        if (pr && pr.dropped >= 0) { dropItem('weapon', WEAPON_IDS[pr.dropped]); toast(WEAPONS[WEAPON_IDS[pr.dropped]].name + ' LARGADA'); }
-        audio.pickup();
-        switchWeapon(idx);
-        toast(nm + ' PEGA!  (tecla ' + (idx + 1) + ')');
-      }
-    }
-  }
+  updateLootPanel(dead);
   // gravidade e contato com o piso
   const gY = groundHeight(player.x, player.z, player.y, world.colliders);
   if (state.grounded && player.vy <= 0 && player.y > gY && player.y - gY < 0.2) player.y = gY;   // acompanha elevadores descendo e degraus
@@ -1853,7 +1937,7 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v17';
+    if (el) el.textContent = fps + ' fps · v18';
     if (state.started && !state.paused) {
       adaptT += 1;
       const prev = resScale;

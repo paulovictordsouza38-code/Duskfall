@@ -3,12 +3,12 @@ export const DROP = {
   ALT: 300,            // altura do helicoptero (m)
   HELI_SPEED: 12,      // velocidade do helicoptero (m/s)
   HELI_Z0: -8, HELI_Z1: -312,
-  FALL_V: 20,          // velocidade maxima da queda livre (m/s)
-  FALL_A: 14,          // aceleracao ate la
-  CHUTE_V: 4,          // velocidade da descida com paraquedas aberto
+  FALL_V: 25,          // velocidade maxima da queda livre (m/s)
+  FALL_A: 17,          // aceleracao ate la
+  CHUTE_V: 5,          // velocidade da descida com paraquedas aberto
   CHUTE_BRAKE: 18,     // desaceleracao ao abrir
   OPEN_H: 70,          // abre sozinho a esta altura sobre o chao
-  H_FALL: 9, H_CHUTE: 7,   // controle horizontal (m/s)
+  H_FALL: 10, H_CHUTE: 7,   // controle horizontal (m/s)
 };
 
 // cabine (metros, relativo ao centro do helicoptero) e lugares onde cada um fica em pe antes de pular

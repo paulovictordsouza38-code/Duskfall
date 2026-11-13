@@ -5,7 +5,7 @@
 // nao dependem das luzes internas e o visual da sala nao muda.
 import * as THREE from 'three';
 import { makeBox, makeCircle, setTerrain } from './logic/collision.js';
-import { terrainHeight, buildTerrainGrid } from './logic/terrain.js';
+import { terrainHeight, buildTerrainGrid, makeTerrainSurface } from './logic/terrain.js';
 import { buildRegiao } from './logic/regiao.js';
 import { buildCasas } from './logic/casas.js';
 
@@ -146,7 +146,7 @@ export function buildScenery(scene, lib, renderer) {
   };
 
   const unit = new THREE.BoxGeometry(1, 1, 1);
-  setTerrain(terrainHeight);                 // o relevo vale para jogador, bots, itens, granadas e tiros
+  setTerrain(makeTerrainSurface(-84, 84, -312, -17, 3));                 // o relevo vale para jogador, bots, itens, granadas e tiros
   const regiao = buildRegiao();
 
   // ---------------------------------------------------------------- ceu

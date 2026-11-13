@@ -20,6 +20,8 @@ import { mergeStaticMeshes } from './merge.js';
 import { Explosives, EXPLOSIVE_STATS } from './explosives.js';
 import { Vitals, Backpack, shotDamage, HP_MAX, EP_MAX, USE_TIME, ITEM_CAP, ITEM_NAMES, fallDamage, explosionDamage } from './logic/combat.js';
 import { buildScenery } from './scenery.js';
+import { DROP, newDrop, openChute, stepDrop, heliAt } from './logic/airdrop.js';
+import { createHeli, createChute, DOOR } from './airdrop.js';
 import { Loadout, WEAPONS, WEAPON_IDS, zoomFor } from './logic/weapons.js';
 import { Stats } from './logic/scoring.js';
 import { resolveMovement, rayBoxes, rayShot, groundHeight, makeBox, makeCircle, terrainAt } from './logic/collision.js';
@@ -227,7 +229,7 @@ const fx = new Effects(scene, lib);
 const audio = new GameAudio();
 const input = new Input(canvas, {
   joystick: $('joystick'), joyKnob: $('joyKnob'), lookZone: $('lookZone'),
-  btnFire: $('btnFire'), btnFire2: $('btnFire2'), btnAim: $('btnAim'), btnReload: $('btnReload'), btnSwap: $('btnSwap'),
+  btnFire: $('btnFire'), btnFire2: $('btnFire2'), btnAim: $('btnAim'),
   btnCrouch: $('btnCrouch'), btnProne: $('btnProne'), btnRun: $('btnRun'), btnJump: $('btnJump'),
   btnHeal: $('btnHeal'), btnFrag: $('btnFrag'), btnGel: $('btnGel'), btnPack: $('btnPack'),
 });
@@ -448,6 +450,7 @@ const lootEl = $('lootPanel') || (() => { const d = document.createElement('div'
   .wt { font-size:6.5px; letter-spacing:.05em; color:#dfe5ee; text-transform:uppercase; line-height:1; margin-top:1px; pointer-events:none; }
   .wBar { position:absolute; left:5px; right:5px; bottom:2.5px; height:2px; background:rgba(255,255,255,.22); } .wBar i { display:block; height:100%; width:100%; background:#fff; transform-origin:left; }
   .wBar.low i { background:#ff6a58; }
+  .wBig { cursor:pointer; pointer-events:auto; }
   .wBig.off { opacity:.55; }
   #lootPanel { position:fixed; z-index:6; display:none; flex-direction:column; gap:3px; width:150px; padding:4px; background:rgba(14,18,26,.72); border-radius:6px; pointer-events:auto; touch-action:none; user-select:none; -webkit-user-select:none; }
   #lootPanel .lh { font-size:7.5px; letter-spacing:.08em; color:#aab4c2; text-align:center; pointer-events:none; }
@@ -545,6 +548,7 @@ wcEl.innerHTML = '<div class="wBig"><div class="wn"><span class="wm">0</span><sm
   '<div class="wRow">' + [0, 1].map((k) => '<div class="wSm" data-k="' + k + '"><img class="wimg"><div class="wt wname"></div><div class="wn"></div><div class="wBar"><i></i></div></div>').join('') + '<div class="wSm inf">∞</div></div>';
 const wBig = wcEl.querySelector('.wBig');
 const wSm = [...wcEl.querySelectorAll('.wSm[data-k]')];
+wBig.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); input.actions.push('reload'); });
 let slotOrder = [];      // [em uso, reserva 1, reserva 2]: tocar numa reserva troca de lugar com a arma em uso
 wSm.forEach((el) => el.addEventListener('pointerdown', (e) => {
   e.preventDefault(); e.stopPropagation();
@@ -654,6 +658,7 @@ function takeLoot(e) {
 }
 function killPlayer() {
   { const c = myCrateContents(); if (c) spawnCrate(player.x, player.z, groundHeight(player.x, player.z, player.y, world.colliders), c, online.you + ':' + (++crateSeq) + ':' + Math.floor(Math.random() * 1e6), true); }
+  if (drop.phase) endDrop();
   match.dead = true; match.deadT = 4; match.deaths++;
   using = null; { const ur = $('useRing'); if (ur) ur.className = ''; } state.gelMode = false; input.fire = false; input.aim = false;
   $('dead').classList.add('on');
@@ -679,6 +684,50 @@ const state = {
   armed: true, startArmed: true, outdoor: 0, gelMode: false,
 };
 let prevWeaponIndex = -1;
+
+// ------------------------------------------------------------------ queda de helicoptero (inicio da partida)
+const drop = { phase: null, ht: 0, d: null };      // phase: 'heli' | 'fall' | 'chute' | null
+const heli = createHeli(scene);
+const playerChute = createChute(); scene.add(playerChute);
+const dropBtn = document.createElement('div');
+dropBtn.id = 'btnDrop';
+dropBtn.style.cssText = 'position:fixed;z-index:6;right:calc(24px + env(safe-area-inset-right));bottom:34%;min-width:112px;padding:18px 14px;border-radius:18px;background:rgba(210,102,31,.92);color:#fff;font:700 17px system-ui,sans-serif;text-align:center;letter-spacing:.5px;box-shadow:0 2px 12px rgba(0,0,0,.5);display:none;touch-action:none;user-select:none;-webkit-user-select:none;cursor:pointer';
+document.body.appendChild(dropBtn);
+dropBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); input.actions.push('dropbtn'); });
+const FOG0 = { near: scene.fog.near, far: scene.fog.far };
+function showDropBtn() {
+  const t = drop.phase === 'heli' ? 'PULAR' : drop.phase === 'fall' ? 'ABRIR PARAQUEDAS' : '';
+  dropBtn.style.display = t ? 'block' : 'none'; dropBtn.textContent = t;
+}
+function beginDrop() {
+  drop.phase = 'heli'; drop.ht = 0; drop.d = null;
+  heli.show(true); heli.setInside(true);
+  view.yaw = -Math.PI / 2; view.pitch = -0.5;
+  scene.fog.near = 380; scene.fog.far = 1300;
+  character.root.visible = false; playerChute.visible = false;
+  if (bots.enabled) bots.dropStart();
+  showDropBtn();
+}
+function endDrop(hideHeli = true) {
+  drop.phase = null; drop.d = null;
+  scene.fog.near = FOG0.near; scene.fog.far = FOG0.far;
+  character.root.visible = true; playerChute.visible = false;
+  if (hideHeli) heli.show(false);
+  showDropBtn();
+  if (camera.fov !== TP_FOV) { camera.fov = TP_FOV; camera.updateProjectionMatrix(); }
+}
+function dropAction() {
+  if (drop.phase === 'heli') {
+    drop.phase = 'fall';
+    drop.d = newDrop(player.x, player.y, player.z);
+    heli.setInside(false); character.root.visible = true;
+    view.pitch = 0.1;
+    audio.jump();
+  } else if (drop.phase === 'fall') {
+    if (openChute(drop.d, false)) { drop.phase = 'chute'; audio.pickup(); }
+  }
+  showDropBtn();
+}
 
 const raycaster = new THREE.Raycaster();
 const _v1 = new THREE.Vector3();
@@ -966,6 +1015,7 @@ function restart() {
   state.aimBlend = 0; state.slide = 0; state.recoilVis = 0;
   state.crouch = false; state.crouchK = 0; state.prone = false; state.proneK = 0; state.alignK = 1; state.grounded = true; state.airK = 0; input.runToggle = false; $('btnRun').classList.remove('on');
   audio.restart();
+  beginDrop();
   toast('PARTIDA REINICIADA');
   updateHud();
 }
@@ -1018,7 +1068,7 @@ function startGame(mode = 'solo') {
   match.mode = mode;
   online.clear();
   restart();
-  if (mode === 'solo') bots.start(player); else bots.stop();
+  if (mode === 'solo') { bots.start(player); if (drop.phase) bots.dropStart(); } else bots.stop();
   match.active = true;
   if (fsPref) enterFullscreen();
   state.started = true;
@@ -1039,6 +1089,7 @@ function toLobby() {
   if (online.active) net.send({ t: 'unmatch' });
   online.clear();
   restart();
+  endDrop();
   state.started = false;
   state.paused = true;
   input.releaseAll(); input.exitLock();
@@ -1581,6 +1632,9 @@ function update(dt) {
     if (match.dead) { match.deadT -= dt; $('deadSub').textContent = 'Voltando em ' + Math.ceil(Math.max(0, match.deadT)) + ' s'; if (match.deadT <= 0) respawnPlayer(); }
   }
   const dead = match.dead;
+  const dropOn = drop.phase !== null;
+  if (heli.root.visible) drop.ht += dt;
+  if (dropOn) { input.fire = false; input.aim = false; input.takeFirePressed(); state.gelMode = false; state.alignK = 1; }
   if (dead) { input.fire = false; input.aim = false; input.takeFirePressed(); }
   vitals.update(dt);
   if (using) {
@@ -1599,7 +1653,7 @@ function update(dt) {
   if (online.active) { online.update(dt); online.sendState(dt, player, view, state.armed ? loadout.currentId : null, Math.max(state.crouchK, state.proneK), !dead); }
   explosives.update(dt);
   bots.update(dt, {
-    player: { x: player.x, y: player.y, z: player.z, alive: !dead, speed: player.speed }, time: state.time,
+    player: { x: player.x, y: player.y, z: player.z, alive: !dead, speed: player.speed }, time: state.time, heli: heliAt(drop.ht),
     hitPlayer: (dmg, bot, zone) => { hurtPlayer(zone === 'cabeca' ? dmg * 2 : dmg); },
     tracer: (a, b) => fx.tracer(a, b),
     sound: (id, dist) => { if (dist < 40) farShot(id); },
@@ -1616,6 +1670,7 @@ function update(dt) {
       else if (a === 'hands') { if (state.armed) holster(); else switchWeapon(loadout.index); }
       else if (a === 'prone') { state.prone = !state.prone; if (state.prone) { state.crouch = false; input.runToggle = false; $('btnRun').classList.remove('on'); } }
       else if (a === 'crouch') { state.prone = false; state.crouch = !state.crouch; if (state.crouch) { input.runToggle = false; $('btnRun').classList.remove('on'); } }
+      else if (a === 'dropbtn' || (a === 'jump' && drop.phase)) dropAction();
       else if (a === 'jump') { if (state.prone) state.prone = false; else if (state.grounded) { player.vy = 4.9; state.grounded = false; state.crouch = false; audio.jump(); } }
       else if (/^w[1-8]$/.test(a)) { state.gelMode = false; switchWeapon(Number(a[1]) - 1); }
       else if (a === 'heal') healAction();
@@ -1684,7 +1739,7 @@ function update(dt) {
   if (sprinting && state.prone) state.prone = false;
   state.crouchK += ((state.crouch ? 1 : 0) - state.crouchK) * Math.min(1, 12 * dt);
   state.proneK += ((state.prone ? 1 : 0) - state.proneK) * Math.min(1, 9 * dt);
-  const maxSpeed = state.prone ? (aiming ? PRONE_AIM : PRONE_WALK) : state.crouch ? (aiming ? 1.4 : 2.0) : aiming ? AIM_WALK : sprinting ? RUN : WALK;
+  const maxSpeed = dropOn ? 0 : state.prone ? (aiming ? PRONE_AIM : PRONE_WALK) : state.crouch ? (aiming ? 1.4 : 2.0) : aiming ? AIM_WALK : sprinting ? RUN : WALK;
   const mag = Math.hypot(_mv.x, _mv.y);
   _fwd.set(-Math.sin(view.yaw), 0, -Math.cos(view.yaw));
   _rgt.set(Math.cos(view.yaw), 0, -Math.sin(view.yaw));
@@ -1724,6 +1779,27 @@ function update(dt) {
   updateLootPanel(dead);
   // gravidade e contato com o piso
   const gY = groundHeight(player.x, player.z, player.y, world.colliders);
+  if (dropOn) {
+    // helicoptero / queda livre / paraquedas: mesmas regras para todos; pouso sem dano
+    const hp = heliAt(drop.ht);
+    state.grounded = false; state.airK = 0; wasAir = false; fallPeak = 0; player.vx = player.vz = 0; player.speed = 0;
+    if (drop.phase === 'heli') {
+      player.x = hp.x + DOOR.x; player.y = hp.y; player.z = hp.z + DOOR.z; player.vy = 0;
+      if (hp.end) dropAction();
+    } else {
+      const d = drop.d;
+      let mx = wx, mz = wz; const ml = Math.hypot(mx, mz); if (ml > 1) { mx /= ml; mz /= ml; }
+      const land = stepDrop(d, dt, gY, mx, mz);
+      const q = { x: d.x, z: d.z };
+      resolveMovement(q, PLAYER_RADIUS, world.colliders, 4, d.y);
+      d.x = q.x; d.z = q.z;
+      player.x = d.x; player.y = d.y; player.z = d.z; player.vy = d.vy;
+      if (d.phase === 'chute' && drop.phase === 'fall') { drop.phase = 'chute'; if (d.auto) toast('PARAQUEDAS ABERTO'); showDropBtn(); }
+      playerChute.visible = d.phase === 'chute';
+      playerChute.position.set(d.x, d.y, d.z); playerChute.rotation.y = view.yaw; playerChute.scale.setScalar(0.2 + 0.8 * d.open);
+      if (land) { player.y = gY; player.vy = 0; state.grounded = true; endDrop(false); }
+    }
+  } else {
   if (state.grounded && player.vy <= 0 && player.y > gY && player.y - gY < 0.2) player.y = gY;   // acompanha elevadores descendo e degraus
   player.vy -= 9.81 * dt;
   player.y += player.vy * dt;
@@ -1736,13 +1812,14 @@ function update(dt) {
     const fd = fallDamage(fallPeak - player.y, LETHAL_H);
     if (fd > 0 && !dead) { hurtPlayer(fd); toast('QUEDA  -' + fd); }
   }
+  }
 
   // ---- giro do corpo
   // Em acao (mirando, atirando ou andando) o corpo acompanha a mira. Parado, o corpo fica quieto e a camera
   // gira 360 graus em volta do personagem. Ao mirar a camera vai para os olhos e continua girando livre.
   const moving = player.speed > 0.15;
   state.fireHold = Math.max(0, state.fireHold - dt);
-  const inAction = aiming || state.fireHold > 0 || moving;
+  const inAction = aiming || state.fireHold > 0 || moving || dropOn;
   const dyaw = wrapAngle(view.yaw - player.hipsYaw);
   const rate = inAction ? 12 : 0;
   player.hipsYaw = wrapAngle(player.hipsYaw + clamp(dyaw, -rate * dt, rate * dt));
@@ -1761,7 +1838,7 @@ function update(dt) {
   syncWeaponVisual();
   const firedPressed = input.takeFirePressed();
   if (state.gelMode && firedPressed && !dead && !using && input.enabled) placeGel();
-  const allowFire = input.enabled && !state.paused && state.armed && !state.gelMode && !dead && !using;
+  const allowFire = input.enabled && !state.paused && state.armed && !state.gelMode && !dead && !using && !dropOn;
   updateGelPreview();
   if (allowFire) {
     const res = w.tryFire(input.fire, firedPressed);
@@ -1798,7 +1875,7 @@ function update(dt) {
   character.update(dt, {
     speed: player.speed, lx: localRight, lz: localFwd, hipsYaw: player.hipsYaw,
     aimYaw: wrapAngle(player.hipsYaw + wrapAngle(view.yaw - player.hipsYaw) * state.alignK), aimPitch: aimPitch * state.alignK,
-    crouch: state.crouchK * (1 - state.proneK), air: state.airK,
+    crouch: state.crouchK * (1 - state.proneK), air: dropOn ? 0 : state.airK,
     aimBlend: state.aimBlend, rig: state.armed && !state.gelMode ? rig : null,
     draw: w.cfg.drawTime > 0 ? 1 - w.drawT / w.cfg.drawTime : 1,
     reload: w.reloading ? w.reloadProgress : -1,
@@ -1846,6 +1923,8 @@ function update(dt) {
   // ---- mundo e efeitos
   world.update(dt, state.time);
   fx.update(dt);
+  heli.update(dt);
+  if (heli.root.visible) { const hp = heliAt(drop.ht); heli.set(hp.x, hp.y, hp.z); if (hp.end && !dropOn) heli.show(false); }
 
   // ---- HUD
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) hud.toast.classList.remove('show'); }
@@ -1862,6 +1941,12 @@ function update(dt) {
 
 function updateCamera(dt, pitch) {
   const yaw = view.yaw;
+  if (drop.phase === 'heli') {                 // primeira pessoa na porta do helicoptero
+    camera.position.set(player.x, player.y + 1.65, player.z);
+    camera.rotation.set(pitch, yaw, 0, 'YXZ');
+    if (camera.fov !== 78) { camera.fov = 78; camera.updateProjectionMatrix(); }
+    return;
+  }
   _rgt.set(Math.cos(yaw), 0, -Math.sin(yaw));
   forwardFrom(yaw, pitch, _fwd);
   const base = _v1.set(player.x, player.y + 1.52 - 0.5 * state.crouchK - 1.0 * state.proneK, player.z);
@@ -2038,7 +2123,7 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v20';
+    if (el) el.textContent = fps + ' fps · v21';
     if (state.started && !state.paused) {
       adaptT += 1;
       const prev = resScale;
@@ -2071,7 +2156,7 @@ function init() {
 }
 
 // expoe para depuracao e testes no navegador
-window.__sala = { net, online, vitals, pack, match, bots, explosives, scene, camera, renderer, world, character, loadout, stats, player, view, state, shoot, restart, switchWeapon, input, audio, pickups, loot: { entries: () => lootEntries, take: (i) => takeLoot(lootEntries[i]), el: lootEl } };
+window.__sala = { drop, dropAction, heli, net, online, vitals, pack, match, bots, explosives, scene, camera, renderer, world, character, loadout, stats, player, view, state, shoot, restart, switchWeapon, input, audio, pickups, loot: { entries: () => lootEntries, take: (i) => takeLoot(lootEntries[i]), el: lootEl } };
 
 try {
   init();

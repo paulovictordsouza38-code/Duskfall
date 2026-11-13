@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { Actor } from './actors.js';
 import { WEAPONS } from './logic/weapons.js';
 import { rayVsPlayer, shotDamage, HP_MAX } from './logic/combat.js';
+import { DROP, newDrop, stepDrop } from './logic/airdrop.js';
+import { createChute } from './airdrop.js';
 import { resolveMovement, rayBoxes, rayShot, groundHeight } from './logic/collision.js';
 
 const BOT_WEAPONS = ['mp5', 'xm8', 'famas', 'scar', 'mp40', 'g18', 'usp', 'mp5', 'xm8', 'awm'];
@@ -55,8 +57,39 @@ export class BotManager {
     b.hp = Math.round(HP_MAX * 0.6);   // bots mais frageis
     { const sx = w.x + (this.rand() - 0.5) * 2, sz = w.z + (this.rand() - 0.5) * 2; b.place(sx, groundHeight(sx, sz, 0, this.o.colliders), sz, this.rand() * Math.PI * 2); }
     b.setWeapon(BOT_WEAPONS[Math.floor(this.rand() * BOT_WEAPONS.length)]);
-    b.ai.goal = null; b.ai.cool = 1.2; b.ai.seenT = -9;
+    b.ai.goal = null; b.ai.cool = 1.2; b.ai.seenT = -9; b.ai.drop = null;
+    if (b.chute) b.chute.visible = false;
     b.root.visible = true;
+  }
+
+  /** todos os bots comecam dentro do helicoptero e pulam em momentos diferentes */
+  dropStart() {
+    for (const b of this.bots) {
+      b.ai.drop = { phase: 'wait', delay: 0.5 + this.rand() * 11, openAt: DROP.OPEN_H + this.rand() * 35, d: null, goal: this._spawnPoint(null) };
+      b.root.visible = false; b.place(0, 600, 0, 0);
+    }
+  }
+
+  _dropStep(b, dt, heli) {
+    const dr = b.ai.drop;
+    if (dr.phase === 'wait') {
+      b.root.visible = false;
+      dr.delay -= dt;
+      if (dr.delay > 0 || !heli) return;
+      dr.d = newDrop(heli.x + 1 + (this.rand() - 0.5), heli.y, heli.z + (this.rand() - 0.5) * 1.5);
+      dr.phase = 'go'; b.root.visible = true; b.hp = Math.round(HP_MAX * 0.6);
+    }
+    const d = dr.d;
+    const gx = dr.goal.x - d.x, gz = dr.goal.z - d.z, gl = Math.hypot(gx, gz);
+    const k = gl > 3 ? 1 : gl / 3;
+    const land = stepDrop(d, dt, groundHeight(d.x, d.z, d.y, this.o.colliders), gl > 0.01 ? gx / gl * k : 0, gl > 0.01 ? gz / gl * k : 0, dr.openAt);
+    if (!b.chute) { b.chute = createChute(); b.root.add(b.chute); }
+    b.chute.visible = d.phase === 'chute';
+    b.chute.scale.setScalar(0.2 + 0.8 * d.open);
+    const yaw = gl > 1 ? Math.atan2(-gx, -gz) : b.yaw;
+    b.place(d.x, d.y, d.z, yaw);
+    b.update(dt, this.t);
+    if (land) { b.chute.visible = false; b.ai.drop = null; b.ai.goal = null; b.ai.cool = 1.0; }
   }
 
   start(avoid) {
@@ -117,6 +150,7 @@ export class BotManager {
         if (ai.respawn <= 0) this._respawn(b, P);
         continue;
       }
+      if (ai.drop) { this._dropStep(b, dt, ctx.heli); continue; }
       const dxp = P.x - b.x, dzp = P.z - b.z;
       const dist = Math.hypot(dxp, dzp);
       const far = dist > 95;

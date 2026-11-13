@@ -218,8 +218,6 @@ export class Input {
       hold(u.btnRun, () => { this.runToggle = !this.runToggle; u.btnRun.classList.toggle('on', this.runToggle); }, () => {});
     }
     hold(u.btnAim, () => { this.aim = this.aimMode === 'toggle' ? !this.aim : true; }, () => { if (this.aimMode === 'hold') this.aim = false; }, true);
-    hold(u.btnReload, () => this.actions.push('reload'), () => {});
-    hold(u.btnSwap, () => this.actions.push('swap'), () => {});
     for (const [k, a] of [['btnHeal', 'heal'], ['btnFrag', 'frag'], ['btnGel', 'gel'], ['btnPack', 'pack']]) if (u[k]) hold(u[k], () => this.actions.push(a), () => {});
   }
 

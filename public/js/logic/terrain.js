@@ -102,3 +102,22 @@ export function buildTerrainGrid(x0, x1, z0, z1, cell) {
   }
   return { pos, uv, col, idx };
 }
+
+/**
+ * Altura EXATA da malha desenhada (interpola os mesmos triangulos de buildTerrainGrid). O jogador, bots, itens e tiros
+ * usam esta funcao, entao o chao nunca fica "afundado" ou "flutuando" em relacao ao que se ve.
+ */
+export function makeTerrainSurface(x0, x1, z0, z1, cell) {
+  const nx = Math.round((x1 - x0) / cell), nz = Math.round((z1 - z0) / cell);
+  const H = new Float32Array((nx + 1) * (nz + 1));
+  for (let j = 0; j <= nz; j++) for (let i = 0; i <= nx; i++) H[j * (nx + 1) + i] = terrainHeight(x0 + (x1 - x0) * i / nx, z0 + (z1 - z0) * j / nz);
+  return (x, z) => {
+    if (x <= x0 || x >= x1 || z <= z0 || z >= z1) return terrainHeight(x, z);
+    const fx = (x - x0) / (x1 - x0) * nx, fz = (z - z0) / (z1 - z0) * nz;
+    let i = Math.floor(fx), j = Math.floor(fz);
+    if (i >= nx) i = nx - 1; if (j >= nz) j = nz - 1;
+    const u = fx - i, v = fz - j;
+    const a = H[j * (nx + 1) + i], b = H[j * (nx + 1) + i + 1], c = H[(j + 1) * (nx + 1) + i], d = H[(j + 1) * (nx + 1) + i + 1];
+    return u + v <= 1 ? a + u * (b - a) + v * (c - a) : d + (1 - u) * (c - d) + (1 - v) * (b - d);
+  };
+}

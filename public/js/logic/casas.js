@@ -30,11 +30,12 @@ export function buildCasas() {
   const colliders = [];
   const loot = [];
   const houses = [];
+  let cur = 0;   // casa em construcao (cada caixa visual sabe a qual casa pertence)
 
   /** caixa solida: visual + colisor */
   function seg(mat, x0, z0, x1, z1, y0, y1, collide = true) {
     if (x1 - x0 < 1e-4 || z1 - z0 < 1e-4 || y1 - y0 < 1e-4) return;
-    boxes.push({ mat, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, cz: (z0 + z1) / 2, sx: x1 - x0, sy: y1 - y0, sz: z1 - z0 });
+    boxes.push({ h: cur, mat, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, cz: (z0 + z1) / 2, sx: x1 - x0, sy: y1 - y0, sz: z1 - z0 });
     if (collide) colliders.push(makeBox(x0, z0, x1, z1, y0, y1));
   }
 
@@ -83,6 +84,7 @@ export function buildCasas() {
    * Uma casa. cx, cz = centro. floors 1 (casa) ou 2 (sobrado). face = +1 (porta para +z) ou -1.
    */
   function house(cx, cz, floors, face, brick, seed) {
+    cur = houses.length;
     const R = rng(seed);
     const W = floors === 2 ? 9 : 8;
     const D = floors === 2 ? 7 : 6;

@@ -19,6 +19,28 @@ export function moveCircle(c, x, z) {
  * Empurra `pos` ({x,z}) para fora dos colisores. Retorna true se houve correcao.
  * O jogador e um circulo de raio `radius`.
  */
+// Relevo: funcao (x, z) -> altura do chao. Sem ela o chao e plano (y = 0).
+let TERRAIN = null;
+export function setTerrain(fn) { TERRAIN = fn; }
+export function terrainAt(x, z) { return TERRAIN ? TERRAIN(x, z) : 0; }
+
+/** Distancia ate o chao (morros) ao longo do raio, ou Infinity. Ignora se a origem ja esta debaixo do chao. */
+export function terrainRay(ox, oy, oz, dx, dy, dz, lim) {
+  if (!TERRAIN) return Infinity;
+  if (oy < TERRAIN(ox, oz)) return Infinity;
+  let a = 0;
+  for (let t = 1; ; t += 1) {
+    const tt = t > lim ? lim : t;
+    if (oy + dy * tt < TERRAIN(ox + dx * tt, oz + dz * tt)) {
+      let lo = a, hi = tt;
+      for (let k = 0; k < 8; k++) { const m = (lo + hi) / 2; if (oy + dy * m < TERRAIN(ox + dx * m, oz + dz * m)) hi = m; else lo = m; }
+      return hi;
+    }
+    if (tt >= lim) return Infinity;
+    a = tt;
+  }
+}
+
 export const STEP_UP = 0.3;     // sobe sozinho degraus de ate 30 cm
 export const BODY_H = 1.7;      // altura do corpo (cabeca livre abaixo de vigas/vergas)
 
@@ -27,7 +49,7 @@ export const BODY_H = 1.7;      // altura do corpo (cabeca livre abaixo de vigas
  * plataformas, lajes, elevadores). So conta o que esta no maximo STEP_UP acima dos pes.
  */
 export function groundHeight(x, z, y, colliders) {
-  let g = 0;
+  let g = TERRAIN ? TERRAIN(x, z) : 0;
   for (let i = 0; i < colliders.length; i++) {
     const c = colliders[i];
     if (c.maxY <= g) continue;
@@ -156,6 +178,14 @@ export function rayShot(ox, oy, oz, dx, dy, dz, maxDist, boxes) {
     }
     if (t < best && t > 0.001) { best = t; hit = b; }
   }
+  if (TERRAIN) {
+    const tt = terrainRay(ox, oy, oz, dx, dy, dz, Math.min(best, maxDist));
+    if (tt < best) {
+      const hx = ox + dx * tt, hz = oz + dz * tt, hy = oy + dy * tt;
+      best = tt;
+      hit = { circle: false, terrain: true, minX: hx - 5, maxX: hx + 5, minZ: hz - 5, maxZ: hz + 5, minY: hy - 5, maxY: hy };
+    }
+  }
   return best <= maxDist ? { t: best, box: hit } : null;
 }
 
@@ -166,5 +196,6 @@ export function rayBoxes(ox, oy, oz, dx, dy, dz, maxDist, boxes) {
     const t = rayAABB(ox, oy, oz, dx, dy, dz, boxes[i]);
     if (t < best) best = t;
   }
+  if (TERRAIN) { const tt = terrainRay(ox, oy, oz, dx, dy, dz, Math.min(best, maxDist)); if (tt < best) best = tt; }
   return best <= maxDist ? best : Infinity;
 }

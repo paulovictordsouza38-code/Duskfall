@@ -181,13 +181,19 @@ export class Loadout {
    * Passa a possuir a arma `i`. Regra: no maximo UMA pistola e DUAS armas principais.
    * Retorna null se ja era sua; senao { dropped } com o indice da arma que teve de ser largada (ou -1).
    */
-  pickUp(i) {
+  /** Qual arma teria de ser largada se eu pegasse a `i`? null = ja e minha; -1 = nenhuma (cabe). (Usado na pre-visualizacao.) */
+  wouldDrop(i) {
     if (!Number.isInteger(i) || i < 0 || i >= WEAPON_IDS.length || this.owned[i]) return null;
     const pistol = WEAPONS[WEAPON_IDS[i]].kind === 'pistol';
     const same = this.owned.map((o, k) => (o && (WEAPONS[WEAPON_IDS[k]].kind === 'pistol') === pistol ? k : -1)).filter((k) => k >= 0);
-    let dropped = -1;
-    if (pistol && same.length >= 1) dropped = same[0];
-    else if (!pistol && same.length >= 2) dropped = same.includes(this.index) ? this.index : same[0];
+    if (pistol && same.length >= 1) return same[0];
+    if (!pistol && same.length >= 2) return same.includes(this.index) ? this.index : same[0];
+    return -1;
+  }
+
+  pickUp(i) {
+    const dropped = this.wouldDrop(i);
+    if (dropped === null) return null;
     if (dropped >= 0) {
       this.owned[dropped] = false;
       this.states[dropped].reset();

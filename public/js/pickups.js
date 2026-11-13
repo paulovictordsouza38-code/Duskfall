@@ -37,6 +37,8 @@ export function createPickups(scene, lib, colliders) {
   const deathGeo = new THREE.BoxGeometry(0.8, 0.5, 0.56);
   const deathBandGeo = new THREE.BoxGeometry(0.82, 0.08, 0.58);
 
+  const cache = {};
+  const C = (key, fn) => cache[key] || (cache[key] = fn());   // geometria/material compartilhados: menos memoria e menos trocas na GPU
   function free(x, z) {
     const p = { x, z };
     return !resolveMovement(p, 0.95, colliders, 1, 0);
@@ -66,10 +68,10 @@ export function createPickups(scene, lib, colliders) {
     } else if (type === 'bandage' || type === 'medkit') {
       body.position.y = 0.5;
       const med = type === 'medkit';
-      const bx = new THREE.Mesh(new THREE.BoxGeometry(med ? 0.5 : 0.34, med ? 0.3 : 0.12, med ? 0.34 : 0.22), new THREE.MeshStandardMaterial({ color: med ? 0xe9e9e4 : 0xf2f2ee, roughness: 0.6 }));
-      const red = new THREE.MeshStandardMaterial({ color: 0xd32a2a, roughness: 0.5 });
-      const c1 = new THREE.Mesh(new THREE.BoxGeometry(med ? 0.28 : 0.2, 0.02, med ? 0.07 : 0.05), red);
-      const c2 = new THREE.Mesh(new THREE.BoxGeometry(med ? 0.07 : 0.05, 0.02, med ? 0.28 : 0.2), red);
+      const bx = new THREE.Mesh(C('bg' + med, () => new THREE.BoxGeometry(med ? 0.5 : 0.34, med ? 0.3 : 0.12, med ? 0.34 : 0.22)), C('bm' + med, () => new THREE.MeshStandardMaterial({ color: med ? 0xe9e9e4 : 0xf2f2ee, roughness: 0.6 })));
+      const red = C('red', () => new THREE.MeshStandardMaterial({ color: 0xd32a2a, roughness: 0.5 }));
+      const c1 = new THREE.Mesh(C('c1' + med, () => new THREE.BoxGeometry(med ? 0.28 : 0.2, 0.02, med ? 0.07 : 0.05)), red);
+      const c2 = new THREE.Mesh(C('c2' + med, () => new THREE.BoxGeometry(med ? 0.07 : 0.05, 0.02, med ? 0.28 : 0.2)), red);
       const top = (med ? 0.15 : 0.06) + 0.012;
       c1.position.y = top; c2.position.y = top;
       body.add(bx, c1, c2);
@@ -77,8 +79,8 @@ export function createPickups(scene, lib, colliders) {
     } else if (type === 'frag' || type === 'gel') {
       body.position.y = 0.55;
       const gel = type === 'gel';
-      const gm = new THREE.Mesh(new THREE.SphereGeometry(0.15, 14, 10), new THREE.MeshStandardMaterial({ color: gel ? 0x8fd8ff : 0x4a5a3a, roughness: 0.4, metalness: 0.3, emissive: gel ? 0x2a79b0 : 0x000000, emissiveIntensity: 0.8 }));
-      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.1, 8), new THREE.MeshStandardMaterial({ color: 0x777777, metalness: 0.7, roughness: 0.4 }));
+      const gm = new THREE.Mesh(C('sg', () => new THREE.SphereGeometry(0.15, 12, 8)), C('gm' + gel, () => new THREE.MeshStandardMaterial({ color: gel ? 0x8fd8ff : 0x4a5a3a, roughness: 0.4, metalness: 0.3, emissive: gel ? 0x2a79b0 : 0x000000, emissiveIntensity: 0.8 })));
+      const cap = new THREE.Mesh(C('cg', () => new THREE.CylinderGeometry(0.05, 0.05, 0.1, 8)), C('cm', () => new THREE.MeshStandardMaterial({ color: 0x777777, metalness: 0.7, roughness: 0.4 })));
       cap.position.y = 0.17;
       body.add(gm, cap);
       ringColor = gel ? 0x66ddff : 0xff8a2a;

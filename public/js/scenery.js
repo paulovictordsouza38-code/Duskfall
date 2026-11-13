@@ -891,16 +891,18 @@ export function buildScenery(scene, lib, renderer) {
 
   // ---------------------------------------------------------------- E) casas e sobrados abandonados (atras dos guindastes)
   const casas = buildCasas();
+  const casaGroups = [];   // uma peca de desenho por casa e por material: a camera so desenha as casas que ve e que estao perto
   {
-    const mats = {
-      wall: [new Bag(), mat(0x8f8a80, concreteSet.map, 0.14, 0.36)],
-      brick: [new Bag(), mBrick],
-      slab: [new Bag(), mConcrete],
-      step: [new Bag(), mDeck],
-      junk: [new Bag(), mRust],
-    };
-    for (const b of casas.boxes) mats[b.mat][0].box(b.cx, b.cy, b.cz, b.sx, b.sy, b.sz);
-    for (const k of Object.keys(mats)) mats[k][0].build(mats[k][1], unit, root);
+    const matOf = { wall: mat(0x8f8a80, concreteSet.map, 0.14, 0.36), brick: mBrick, slab: mConcrete, step: mDeck, junk: mRust };
+    casas.houses.forEach((h, hi) => {
+      const bags = {};
+      for (const b of casas.boxes) { if (b.h !== hi) continue; (bags[b.mat] || (bags[b.mat] = new Bag())).box(b.cx, b.cy, b.cz, b.sx, b.sy, b.sz); }
+      const grp = new THREE.Group();
+      grp.matrixAutoUpdate = false;
+      for (const k of Object.keys(bags)) { const im = bags[k].build(matOf[k], unit, grp); if (im) im.frustumCulled = true; }
+      root.add(grp);
+      casaGroups.push({ grp, x: h.cx, z: h.cz });
+    });
     for (const c of casas.colliders) colliders.push(c);
   }
 
@@ -925,6 +927,7 @@ export function buildScenery(scene, lib, renderer) {
   // o ceu acompanha a camera (sem paralaxe); os elevadores de obra sobem e descem sozinhos
   function update(camera, dt = 0) {
     sky.position.copy(camera.position);
+    for (const c of casaGroups) { const dx = c.x - camera.position.x, dz = c.z - camera.position.z; const v = dx * dx + dz * dz < 110 * 110; if (c.grp.visible !== v) c.grp.visible = v; }
     sun.position.set(camera.position.x - 70, 22, camera.position.z - 210);
     if (dt <= 0) return;
     for (const e of elevators) {

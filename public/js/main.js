@@ -687,7 +687,7 @@ let prevWeaponIndex = -1;
 
 // ------------------------------------------------------------------ queda de helicoptero (inicio da partida)
 const drop = { phase: null, ht: 0, d: null, tilt: 0, arms: 0, swap: false };      // phase: 'heli' | 'fall' | 'chute' | null
-const heli = createHeli(scene);
+const heli = createHeli(scene, renderer, camera);
 const playerChute = createChute(); scene.add(playerChute);
 const dropBtn = document.createElement('div');
 dropBtn.id = 'btnDrop';
@@ -1876,10 +1876,11 @@ function update(dt) {
 
   // ---- personagem
   character.root.position.set(player.x, player.y, player.z);
+  const diving = drop.phase === 'fall' || drop.phase === 'chute';
   const aimPitch = view.pitch + view.recoil;
   character.update(dt, {
     speed: player.speed, lx: localRight, lz: localFwd, hipsYaw: player.hipsYaw,
-    aimYaw: wrapAngle(player.hipsYaw + wrapAngle(view.yaw - player.hipsYaw) * state.alignK), aimPitch: aimPitch * state.alignK,
+    aimYaw: wrapAngle(player.hipsYaw + wrapAngle(view.yaw - player.hipsYaw) * state.alignK), aimPitch: diving ? 0 : aimPitch * state.alignK,
     crouch: state.crouchK * (1 - state.proneK), air: dropOn ? 0 : state.airK,
     aimBlend: state.aimBlend, rig: state.armed && !state.gelMode && drop.phase !== 'fall' && drop.phase !== 'chute' ? rig : null,
     dive: drop.tilt / 1.45, diveArm: drop.arms,
@@ -1938,7 +1939,7 @@ function update(dt) {
   world.update(dt, state.time);
   fx.update(dt);
   heli.update(dt);
-  { let rv = 0; if (heli.root.visible && !state.paused) { rv = drop.phase === 'heli' ? 0.85 : 0.85 * Math.exp(-Math.max(0, camera.position.distanceTo(heli.root.position) - 8) / 45); } audio.rotor(rv); }
+  { let rv = 0; if (heli.root.visible && !state.paused) { rv = drop.phase === 'heli' ? 0.85 : 0.85 * Math.exp(-Math.max(0, camera.position.distanceTo(heli.root.position) - 8) / 45); } if (Math.abs(rv - (drop.rv || 0)) > 0.02 || (rv === 0 && drop.rv)) { drop.rv = rv; audio.rotor(rv); } }
   if (heli.root.visible) { const hp = heliAt(drop.ht); heli.set(hp.x, hp.y, hp.z); if (hp.end && !dropOn) heli.show(false); }
 
   // ---- HUD
@@ -2138,14 +2139,14 @@ function frame(now) {
   else if (!state.started) lobbyScene(dt);
   scenery.update(camera, state.started && !state.paused ? dt : 0);
   shadowTick++;
-  if (renderer.shadowMap.enabled && (shadowTick % 4 === 0)) renderer.shadowMap.needsUpdate = true;
+  if (renderer.shadowMap.enabled && (shadowTick % 4 === 0) && !(drop.phase && player.y > 25)) renderer.shadowMap.needsUpdate = true;   // la no alto nao ha sombra para ver
   renderer.render(scene, camera);
   fpsAcc += dt; fpsN++;
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v24';
-    if (state.started && !state.paused) {
+    if (el) el.textContent = fps + ' fps · v25';
+    if (state.started && !state.paused && !drop.phase) {
       adaptT += 1;
       const prev = resScale;
       if (fps < 40 && resScale > 0.7 && adaptT >= 2) { resScaleCap = resScale - 0.05; resScale = Math.max(0.7, resScale - 0.1); adaptT = 0; }

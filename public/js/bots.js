@@ -70,12 +70,16 @@ export class BotManager {
     });
   }
 
-  _dropStep(b, dt, heli) {
+  _dropStep(b, dt, heli, P) {
     const dr = b.ai.drop;
     if (dr.phase === 'wait') {
       dr.delay -= dt;
       if (heli) b.place(heli.x + dr.slot.x, heli.y, heli.z + dr.slot.z, -Math.PI / 2);   // em pe dentro da cabine, olhando a porta
-      if (dr.delay > 0 || !heli) { b.update(dt, this.t); return; }
+      if (dr.delay > 0 || !heli) {
+        const near = P && Math.abs(P.x - b.x) + Math.abs(P.z - b.z) + Math.abs((P.y || 0) - b.y) < 40;
+        b.root.visible = near; if (near) b.update(dt, this.t);
+        return;
+      }
       dr.d = newDrop(heli.x + 1.2, heli.y, heli.z + dr.slot.z); dr.d.vx = 6;   // sai da porta para fora do casco
       dr.phase = 'go'; b.root.visible = true; b.hp = Math.round(HP_MAX * 0.6);
     }
@@ -88,7 +92,9 @@ export class BotManager {
     b.chute.chute.scale.setScalar(0.2 + 0.8 * d.open);
     const yaw = gl > 1 ? Math.atan2(-gx, -gz) : b.yaw;
     b.place(d.x, d.y, d.z, yaw);
-    b.update(dt, this.t);
+    const d3 = P ? Math.abs(P.x - d.x) + Math.abs(P.z - d.z) + Math.abs((P.y || 0) - d.y) : 0;
+    b.root.visible = d3 < 260;                       // longe demais para ver: nao desenha nem anima
+    if (b.root.visible && (d3 < 120 || ((this._f = (this._f || 0) + 1) & 3) === 0)) b.update(dt, this.t);
     if (land) { b.chute.visible = false; b.ai.drop = null; b.ai.goal = null; b.ai.cool = 1.0; }
   }
 
@@ -150,7 +156,7 @@ export class BotManager {
         if (ai.respawn <= 0) this._respawn(b, P);
         continue;
       }
-      if (ai.drop) { this._dropStep(b, dt, ctx.heli); continue; }
+      if (ai.drop) { this._dropStep(b, dt, ctx.heli, P); continue; }
       const dxp = P.x - b.x, dzp = P.z - b.z;
       const dist = Math.hypot(dxp, dzp);
       const far = dist > 95;

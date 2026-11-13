@@ -33,6 +33,36 @@ function canvasTex(w, h, draw, rx = 1, ry = 1) {
 }
 function texMat(tex, fallback) { return tex ? new THREE.MeshBasicMaterial({ map: tex }) : mat(fallback); }
 
+/** junta as pecas fixas da cabine em poucas malhas (1 por textura + 1 de cor com cores por vertice): bem menos chamadas de desenho */
+function mergeStatic(g) {
+  const groups = new Map();
+  for (const c of [...g.children]) {
+    if (!c.isMesh || c.material.transparent) continue;
+    const key = c.material.map ? c.material : 'color';
+    let a = groups.get(key); if (!a) { a = []; groups.set(key, a); }
+    a.push(c); g.remove(c);
+  }
+  for (const [key, list] of groups) {
+    const tex = key !== 'color';
+    let n = 0; const geos = list.map((c) => { c.updateMatrix(); const ge = c.geometry.clone().applyMatrix4(c.matrix); const ni = ge.index ? ge.toNonIndexed() : ge; n += ni.attributes.position.count; return ni; });
+    const pos = new Float32Array(n * 3), uv = tex ? new Float32Array(n * 2) : null, col = tex ? null : new Float32Array(n * 3);
+    let o = 0;
+    geos.forEach((ge, i) => {
+      const cnt = ge.attributes.position.count;
+      pos.set(ge.attributes.position.array, o * 3);
+      if (tex) uv.set(ge.attributes.uv.array, o * 2);
+      else { const cc = list[i].material.color; for (let k = 0; k < cnt; k++) { col[(o + k) * 3] = cc.r; col[(o + k) * 3 + 1] = cc.g; col[(o + k) * 3 + 2] = cc.b; } }
+      o += cnt;
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    if (tex) geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); else geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const m = new THREE.Mesh(geo, tex ? key : new THREE.MeshBasicMaterial({ vertexColors: true }));
+    m.frustumCulled = false;
+    g.add(m);
+  }
+}
+
 function buildCabin() {
   const g = new THREE.Group();
   const { W, L, H } = CABIN;
@@ -134,18 +164,31 @@ function buildCabin() {
   const glass = new THREE.Mesh(new THREE.PlaneGeometry(W * 2, 0.9), new THREE.MeshBasicMaterial({ color: 0x6f8aa0, transparent: true, opacity: 0.28, side: THREE.DoubleSide }));
   glass.position.set(0, 2.05, zf - 0.04); g.add(glass);                         // para-brisa
   for (const x of [-W, 0, W]) g.add(box(0.09, 0.95, 0.09, x, 2.05, zf - 0.03, 0x15181b));
+  mergeStatic(g);
   return g;
 }
 
-export function createHeli(scene) {
+export function createHeli(scene, renderer, camera) {
   const root = new THREE.Group(); root.visible = false; scene.add(root);
   const model = new THREE.Group(); model.rotation.y = -Math.PI / 2; model.scale.setScalar(8); model.visible = false; root.add(model);
   const cabin = buildCabin(); cabin.visible = false; root.add(cabin);
   let main = null, tail = null, ready = false;
   fetch('heli.glb').then((r) => r.arrayBuffer()).then((buf) => {
-    const { root: r, parts } = buildGLB(buf);
+    const { root: r, parts } = buildGLB(buf, renderer);
     model.add(r); main = parts.rotor_main; tail = parts.rotor_tail; ready = true;
+    prewarm();
   }).catch(() => { /* sem modelo: so a cabine */ });
+  // compila os shaders e envia as texturas para a GPU antes do primeiro uso (evita trava na hora de pular)
+  function prewarm() {
+    if (!renderer || !camera) return;
+    const rv = root.visible, mv = model.visible, cv = cabin.visible;
+    root.visible = model.visible = cabin.visible = true;
+    try {
+      cabin.traverse((o) => { if (o.material && o.material.map) renderer.initTexture(o.material.map); });
+      renderer.compile(scene, camera);
+    } catch (e) { /* ok */ }
+    root.visible = rv; model.visible = mv; cabin.visible = cv;
+  }
   let inside = false;
   return {
     root,

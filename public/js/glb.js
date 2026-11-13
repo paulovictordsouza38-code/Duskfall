@@ -16,7 +16,7 @@ export function parseGLB(buf) {
 }
 
 /** devolve { root, parts: {nome: Object3D} }; a textura carrega depois (a malha ja aparece com cor cinza escuro) */
-export function buildGLB(buf) {
+export function buildGLB(buf, renderer) {
   const { json: g, bin } = parseGLB(buf);
   const mat = new THREE.MeshLambertMaterial({ color: 0x9a9a9a, side: THREE.DoubleSide });
   const root = new THREE.Group(); const parts = {};
@@ -34,6 +34,7 @@ export function buildGLB(buf) {
     geo.setAttribute('uv', new THREE.BufferAttribute(read(p.attributes.TEXCOORD_0), 2));
     geo.setIndex(new THREE.BufferAttribute(read(p.indices), 1));
     geo.computeVertexNormals();
+    geo.computeBoundingSphere();
     const m = new THREE.Mesh(geo, mat);
     m.position.fromArray(nd.translation || [0, 0, 0]);
     m.frustumCulled = false;
@@ -43,7 +44,7 @@ export function buildGLB(buf) {
     const iv = g.bufferViews[g.images[0].bufferView];
     const blob = new Blob([new Uint8Array(bin, iv.byteOffset || 0, iv.byteLength)], { type: 'image/jpeg' });
     const url = URL.createObjectURL(blob);
-    new THREE.TextureLoader().load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; mat.map = t; mat.color.set(0xffffff); mat.needsUpdate = true; URL.revokeObjectURL(url); });
+    new THREE.TextureLoader().load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; mat.map = t; mat.color.set(0xffffff); mat.needsUpdate = true; if (renderer) { try { renderer.initTexture(t); } catch (e) { /* ok */ } } URL.revokeObjectURL(url); });
   } catch (e) { /* fica cinza */ }
   return { root, parts };
 }

@@ -422,10 +422,47 @@ function botCrateContents(b) {
 }
 // ---- pre-visualizacao do loot (sem botoes): toque no icone (ou tecla E) para pegar/trocar; andar para longe = nao pegar
 const icons = createIcons(renderer, (t, i) => pickups.visual(t, i));
-const lootEl = $('lootPanel');
+const ammoEl = $('ammo');
+const lootEl = $('lootPanel') || (() => { const d = document.createElement('div'); d.id = 'lootPanel'; document.body.appendChild(d); return d; })();
+{
+  const st = document.createElement('style');
+  st.textContent = `
+  #ammo.wnew { background:none !important; border:none !important; padding:0 !important; min-width:0 !important; backdrop-filter:none; text-align:left; width:132px; }
+  body.touch #itemBtns { top:calc(152px + env(safe-area-inset-top)); gap:6px; }
+  body.touch .ib { width:calc(var(--Bt)*.86); height:calc(var(--Bt)*.86); }
+  #ammo.wnew > #wName, #ammo.wnew > #ammoLine, #ammo.wnew > .rbar, #ammo.wnew > .slots { display:none; }
+  #wCards { display:flex; flex-direction:column; gap:3px; width:132px; font-family:inherit; }
+  .wBig, .wSm { position:relative; background:rgba(24,30,42,.8); border-radius:4px; color:#fff; overflow:hidden; }
+  .wBig { height:46px; display:flex; align-items:center; padding:3px 6px 7px; gap:4px; }
+  .wBig .wn { flex:0 0 auto; font-size:20px; font-weight:700; line-height:1; font-variant-numeric:tabular-nums; }
+  .wBig .wn small { font-size:10px; color:#c8d0dc; font-weight:400; }
+  .wBig .wn.low { color:#ff6a58; }
+  .wBig .wi { flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; }
+  .wBig img { width:62px; height:30px; object-fit:contain; }
+  .wRow { display:flex; gap:3px; }
+  .wSm { flex:1; height:44px; display:flex; flex-direction:column; align-items:center; padding:3px 3px 8px; cursor:pointer; pointer-events:auto; }
+  .wSm img { width:34px; height:19px; object-fit:contain; pointer-events:none; }
+  .wSm .wn { font-size:9px; font-weight:700; font-variant-numeric:tabular-nums; position:absolute; left:5px; bottom:6px; pointer-events:none; }
+  .wSm.empty { opacity:.45; cursor:default; } .wSm.inf { font-size:18px; align-items:center; justify-content:center; padding:0; cursor:default; }
+  .wt { font-size:6.5px; letter-spacing:.05em; color:#dfe5ee; text-transform:uppercase; line-height:1; margin-top:1px; pointer-events:none; }
+  .wBar { position:absolute; left:5px; right:5px; bottom:2.5px; height:2px; background:rgba(255,255,255,.22); } .wBar i { display:block; height:100%; width:100%; background:#fff; transform-origin:left; }
+  .wBar.low i { background:#ff6a58; }
+  .wBig.off { opacity:.55; }
+  #lootPanel { position:fixed; z-index:6; display:none; flex-direction:column; gap:3px; width:150px; padding:4px; background:rgba(14,18,26,.72); border-radius:6px; pointer-events:auto; touch-action:none; user-select:none; -webkit-user-select:none; }
+  #lootPanel .lh { font-size:7.5px; letter-spacing:.08em; color:#aab4c2; text-align:center; pointer-events:none; }
+  .lp { display:flex; align-items:center; gap:6px; color:#fff; cursor:pointer; padding:1px 2px; border-radius:4px; }
+  .lp:active { background:rgba(255,255,255,.18); }
+  .lp .lpi { width:44px; height:30px; object-fit:contain; flex:0 0 auto; pointer-events:none; }
+  .lp .lt { display:flex; flex-direction:column; min-width:0; pointer-events:none; }
+  .lp b { font-size:10px; letter-spacing:.03em; line-height:1.1; }
+  .lp i { font-size:9px; font-style:normal; color:#ffd23a; display:flex; align-items:center; gap:2px; }
+  .lp .lps { width:22px; height:15px; object-fit:contain; }`;
+  (document.head || document.documentElement).appendChild(st);
+}
 let lootEntries = [];
 let lootSig = '';
-const ICON_WARM = [['weapon', 'usp'], ['weapon', 'mp40'], ['weapon', 'g18'], ['weapon', 'mp5'], ['weapon', 'xm8'], ['weapon', 'famas'], ['weapon', 'scar'], ['weapon', 'awm'], ['scope', '4x'], ['ammo', 'short'], ['ammo', 'long'], ['bandage', 'a'], ['medkit', 'k'], ['frag', 'f'], ['gel', 'g'], ['crate', 'loot']];
+const ICON_WARM = [['weapon', 'usp', 1], ['weapon', 'mp40', 1], ['weapon', 'g18', 1], ['weapon', 'mp5', 1], ['weapon', 'xm8', 1], ['weapon', 'famas', 1], ['weapon', 'scar', 1], ['weapon', 'awm', 1],
+  ['weapon', 'usp'], ['weapon', 'mp40'], ['weapon', 'g18'], ['weapon', 'mp5'], ['weapon', 'xm8'], ['weapon', 'famas'], ['weapon', 'scar'], ['weapon', 'awm'], ['scope', '4x'], ['ammo', 'short'], ['ammo', 'long'], ['bandage', 'a'], ['medkit', 'k'], ['frag', 'f'], ['gel', 'g']];
 const ITEM_LABEL = { bandage: 'ATADURA', medkit: 'KIT MÉDICO', frag: 'GRANADA', gel: 'GEL' };
 function itemLabel(type, id) {
   if (type === 'weapon') return WEAPONS[id] ? WEAPONS[id].name : id;
@@ -442,7 +479,7 @@ function lootNearby() {
       if (it.contents.scope4x) out.push({ k: 'cscope', it });
     } else out.push({ k: 'item', it });
   }
-  return out.slice(0, 7);
+  return out.slice(0, 5);
 }
 /** Descricao de uma entrada: icone, nome, quantidade e (se for arma) o que seria trocado. */
 function describeEntry(e) {
@@ -464,25 +501,87 @@ function describeEntry(e) {
   if (e.k === 'citem') return { type: e.kind, id: 'x', name: ITEM_LABEL[e.kind], sub: '×' + e.n };
   return { type: 'scope', id: '4x', name: 'MIRA 4x', sub: '' };
 }
-function updateLootPanel(dead) {
-  if (!lootEl) return;
-  if (state.started && !state.paused) icons.warm(ICON_WARM);          // 1 icone por quadro ate todos estarem prontos
-  lootEntries = dead || state.paused || !state.started ? [] : lootNearby();
-  let sig = '';
-  const ds = lootEntries.map((e) => { const d = describeEntry(e); sig += d.type + d.id + d.name + d.sub + (d.swap || '') + '|'; return d; });
-  if (sig === lootSig) return;
-  lootSig = sig;
-  if (!ds.length) { lootEl.style.display = 'none'; lootEl.textContent = ''; return; }
-  const img = (t, i, cls) => { const u = icons.url(t, i); return u ? '<img class="' + cls + '" src="' + u + '">' : ''; };
-  lootEl.innerHTML = ds.map((d, n) => '<div class="lp" data-i="' + n + '">' + img(d.type, d.id, 'lpi') + '<b>' + d.name + '</b>' +
-    (d.sub ? '<i>' + (d.swap ? '⇄ ' + img('weapon', d.swap, 'lps') : '') + d.sub + '</i>' : '') + '</div>').join('');
-  lootEl.style.display = 'flex';
+let lootPlaceT = 0;
+function placeLoot() {      // fica no canto direito, logo abaixo do quadro de armas
+  const r = ammoEl.getBoundingClientRect();
+  lootEl.style.right = Math.round(window.innerWidth - r.right + (input.touch ? 66 : 0)) + 'px';
+  lootEl.style.left = 'auto';
+  if (input.touch) { lootEl.style.top = Math.round(r.bottom + 6) + 'px'; lootEl.style.bottom = 'auto'; }      // celular: abaixo do quadro de armas
+  else { lootEl.style.bottom = Math.round(window.innerHeight - r.top + 6) + 'px'; lootEl.style.top = 'auto'; }    // PC: o quadro fica embaixo, entao o painel sobe
 }
-if (lootEl) {
-  lootEl.addEventListener('pointerdown', (e) => {
-    e.preventDefault(); e.stopPropagation();
-    const t = e.target.closest ? e.target.closest('.lp') : null;
-    if (t) { const en = lootEntries[+t.dataset.i]; if (en) takeLoot(en); }
+function updateLootPanel(dead) {
+  if (state.started && !state.paused) { try { icons.warm(ICON_WARM); } catch (e) { /* sem icones: so texto */ } }
+  lootEntries = dead || state.paused || !state.started ? [] : lootNearby();
+  try {
+    let sig = '';
+    const ds = lootEntries.map((e) => { const d = describeEntry(e); sig += d.type + d.id + d.name + d.sub + (d.swap || '') + '|'; return d; });
+    if (sig !== lootSig) {
+      lootSig = sig;
+      if (!ds.length) { lootEl.style.display = 'none'; lootEl.textContent = ''; }
+      else {
+        const img = (t, i, cls) => { const u = icons.url(t, i); return u ? '<img class="' + cls + '" src="' + u + '">' : ''; };
+        lootEl.innerHTML = '<div class="lh">' + (input.touch ? 'TOQUE PARA PEGAR' : 'CLIQUE OU TECLA E') + '</div>' + ds.map((d, n) => '<div class="lp" data-i="' + n + '">' + img(d.type, d.id, 'lpi') + '<div class="lt"><b>' + d.name + '</b>' +
+          (d.sub ? '<i>' + (d.swap ? '⇄ ' + img('weapon', d.swap, 'lps') : '') + d.sub + '</i>' : '') + '</div></div>').join('');
+        lootEl.style.display = 'flex';
+        placeLoot();
+      }
+    }
+    if (ds.length && ++lootPlaceT % 30 === 0) placeLoot();
+  } catch (err) { console.warn('painel de loot:', err); }
+}
+lootEl.addEventListener('pointerdown', (e) => {
+  e.preventDefault(); e.stopPropagation();
+  const t = e.target.closest ? e.target.closest('.lp') : null;
+  if (t) { const en = lootEntries[+t.dataset.i]; if (en) takeLoot(en); }
+});
+
+// ---- quadro de armas e municao (estilo "arma em uso grande + 2 reservas"): desenho branco, nome pequeno, barra e numero de municao
+const wcEl = document.createElement('div');
+wcEl.id = 'wCards';
+ammoEl.classList.add('wnew');
+ammoEl.appendChild(wcEl);
+wcEl.innerHTML = '<div class="wBig"><div class="wn"><span class="wm">0</span><small class="wr"></small></div><div class="wi"><img class="wimg"><div class="wt wname"></div></div><div class="wBar big"><i></i></div></div>' +
+  '<div class="wRow">' + [0, 1].map((k) => '<div class="wSm" data-k="' + k + '"><img class="wimg"><div class="wt wname"></div><div class="wn"></div><div class="wBar"><i></i></div></div>').join('') + '<div class="wSm inf">∞</div></div>';
+const wBig = wcEl.querySelector('.wBig');
+const wSm = [...wcEl.querySelectorAll('.wSm[data-k]')];
+let slotOrder = [];      // [em uso, reserva 1, reserva 2]: tocar numa reserva troca de lugar com a arma em uso
+wSm.forEach((el) => el.addEventListener('pointerdown', (e) => {
+  e.preventDefault(); e.stopPropagation();
+  const idx = slotOrder[1 + +el.dataset.k];
+  if (idx !== undefined && loadout.owned[idx]) input.actions.push('w' + (idx + 1));
+}));
+function setWeaponImg(el, id, key) {
+  if (el._k === key) return;
+  el._k = key;
+  const u = id ? icons.url('weapon', id, true) : '';
+  el.style.visibility = u ? 'visible' : 'hidden';
+  if (u) el.src = u;
+}
+function updateWeaponHud() {
+  slotOrder = slotOrder.filter((i) => loadout.owned[i]);
+  loadout.owned.forEach((o, i) => { if (o && !slotOrder.includes(i)) slotOrder.push(i); });
+  if (state.armed) { const p = slotOrder.indexOf(loadout.index); if (p > 0) { const t = slotOrder[0]; slotOrder[0] = slotOrder[p]; slotOrder[p] = t; } }
+  const bi = slotOrder[0];
+  const w = bi === undefined ? null : loadout.states[bi];
+  setClass('wb', wBig, 'off', !state.armed);
+  setText('wbm', wBig.querySelector('.wm'), w ? String(w.mag).padStart(2, '0') : '--');
+  setText('wbr', wBig.querySelector('.wr'), w ? '/' + w.reserve : '');
+  setClass('wbl', wBig.querySelector('.wn'), 'low', !!w && w.mag <= Math.ceil(w.cfg.magSize * 0.25));
+  setText('wbn', wBig.querySelector('.wname'), w ? w.cfg.name : 'SEM ARMA');
+  setWeaponImg(wBig.querySelector('.wimg'), w ? WEAPON_IDS[bi] : null, 'b' + bi);
+  const frac = w ? (w.reloading ? w.reloadProgress : w.mag / w.cfg.magSize) : 0;
+  const bf = Math.round(frac * 50) / 50;
+  if (hudCache.wbf !== bf) { hudCache.wbf = bf; wBig.querySelector('.wBar i').style.transform = `scaleX(${bf})`; }
+  setClass('wbb', wBig.querySelector('.wBar'), 'low', !!w && !w.reloading && w.mag <= Math.ceil(w.cfg.magSize * 0.25));
+  wSm.forEach((el, k) => {
+    const i = slotOrder[1 + k];
+    const s = i === undefined ? null : loadout.states[i];
+    setClass('wse' + k, el, 'empty', !s);
+    setText('wsn' + k, el.querySelector('.wname'), s ? s.cfg.name : '');
+    setText('wst' + k, el.querySelector('.wn'), s ? String(s.mag + s.reserve) : '');
+    setWeaponImg(el.querySelector('.wimg'), s ? WEAPON_IDS[i] : null, 's' + i);
+    const f = s ? Math.round(Math.min(1, (s.mag + s.reserve) / (s.cfg.magSize + s.cfg.reserve)) * 50) / 50 : 0;
+    if (hudCache['wsf' + k] !== f) { hudCache['wsf' + k] = f; el.querySelector('.wBar i').style.transform = `scaleX(${f})`; }
   });
 }
 /** Entrega um item solto do mapa. Retorna true se foi consumido. */
@@ -634,6 +733,7 @@ const hudCache = {};
 function setText(key, el, v) { if (hudCache[key] !== v) { hudCache[key] = v; el.textContent = v; } }
 function setClass(key, el, cls, on) { const k = key + cls; if (hudCache[k] !== on) { hudCache[k] = on; el.classList.toggle(cls, on); } }
 function updateHud() {
+  updateWeaponHud();
   const w = loadout.current;
   const armed = state.armed;
   const lbl = w.cfg.scope4 && loadout.has4x ? w.cfg.label.replace('2x', '4x') : w.cfg.label;
@@ -1937,7 +2037,7 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v18';
+    if (el) el.textContent = fps + ' fps · v19';
     if (state.started && !state.paused) {
       adaptT += 1;
       const prev = resScale;
@@ -1970,7 +2070,7 @@ function init() {
 }
 
 // expoe para depuracao e testes no navegador
-window.__sala = { net, online, vitals, pack, match, bots, explosives, scene, camera, renderer, world, character, loadout, stats, player, view, state, shoot, restart, switchWeapon, input, audio, pickups };
+window.__sala = { net, online, vitals, pack, match, bots, explosives, scene, camera, renderer, world, character, loadout, stats, player, view, state, shoot, restart, switchWeapon, input, audio, pickups, loot: { entries: () => lootEntries, take: (i) => takeLoot(lootEntries[i]), el: lootEl } };
 
 try {
   init();

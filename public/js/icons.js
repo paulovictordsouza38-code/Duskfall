@@ -36,12 +36,12 @@ export function createIcons(renderer, makeVisual) {
     return box;
   }
 
-  function render(type, id) {
+  function render(type, id, white) {
     const c = init();
     const vis = makeVisual(type, id);
     const obj = vis.body;
     obj.position.set(0, 0, 0); obj.rotation.set(0, 0, 0);
-    obj.traverse((o) => { o.visible = o.visible !== false; });
+    if (white) { const wm = new THREE.MeshBasicMaterial({ color: 0xffffff }); obj.traverse((o) => { if (o.isMesh) o.material = wm; }); }
     c.scene.add(obj);
     const box = bounds(obj);
     const size = box.getSize(new THREE.Vector3());
@@ -88,21 +88,20 @@ export function createIcons(renderer, makeVisual) {
     return c.cv.toDataURL('image/png');
   }
 
-  function url(type, id) {
-    const key = type + ':' + id;
+  function url(type, id, white = false) {
+    const key = (white ? 'w:' : '') + type + ':' + id;
     if (cache.has(key)) return cache.get(key);
     let u = '';
-    try { u = render(type, id) || ''; } catch (e) { u = ''; }
+    try { u = render(type, id, white) || ''; } catch (e) { u = ''; }
     cache.set(key, u);
     return u;
   }
 
   return {
     url,
-    has: (type, id) => cache.has(type + ':' + id),
     /** desenha 1 icone ainda nao pronto por chamada (evita travada ao chegar perto de um item) */
     warm(list) {
-      for (const [t, i] of list) if (!cache.has(t + ':' + i)) { url(t, i); return true; }
+      for (const [t, i, w] of list) if (!cache.has((w ? 'w:' : '') + t + ':' + i)) { url(t, i, !!w); return true; }
       return false;
     },
   };

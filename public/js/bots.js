@@ -74,13 +74,9 @@ export class BotManager {
     const dr = b.ai.drop;
     if (dr.phase === 'wait') {
       dr.delay -= dt;
-      if (heli) b.place(heli.x + dr.slot.x, heli.y, heli.z + dr.slot.z, -Math.PI / 2);   // em pe dentro da cabine, olhando a porta
-      if (dr.delay > 0 || !heli) {
-        const near = P && Math.abs(P.x - b.x) + Math.abs(P.z - b.z) + Math.abs((P.y || 0) - b.y) < 40;
-        b.root.visible = near; if (near) b.update(dt, this.t);
-        return;
-      }
-      dr.d = newDrop(heli.x + 1.2, heli.y, heli.z + dr.slot.z); dr.d.vx = 6;   // sai da porta para fora do casco
+      b.root.visible = false;                                   // dentro do helicoptero fechado: ninguem aparece
+      if (dr.delay > 0 || !heli) return;
+      dr.d = newDrop(heli.x + 3.9, heli.y - 2.1, heli.z + dr.slot.z * 0.8); dr.d.vx = 3;   // sai da porta, ao lado do casco
       dr.phase = 'go'; b.root.visible = true; b.hp = Math.round(HP_MAX * 0.6);
     }
     const d = dr.d;

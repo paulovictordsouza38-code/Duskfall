@@ -222,16 +222,6 @@ export class SoldadoSkin {
     b.updateMatrixWorld(true);
   }
 
-  /** aponta o osso para uma direcao do modelo, misturando (k) com a direcao atual */
-  _diveAim(boneName, childName, x, y, z, k) {
-    const bone = this.byName[boneName], child = this.byName[childName];
-    this.holder.updateMatrixWorld(true);
-    const cur = child.getWorldPosition(new THREE.Vector3()).sub(bone.getWorldPosition(new THREE.Vector3())).normalize();
-    const t = new THREE.Vector3(x, y, z).normalize().applyQuaternion(this.holder.getWorldQuaternion(new THREE.Quaternion()));
-    cur.lerp(t, k).normalize();
-    this._aim(bone, child, cur);
-  }
-
   // faz o osso apontar (filho) na direcao d (mundo)
   _aim(bone, child, d) {
     bone.getWorldPosition(_v3);
@@ -329,21 +319,21 @@ export class SoldadoSkin {
 
     // queda livre / paraquedas: pernas dobradas para cima, bracos levantados (segurando as linhas)
     const dk = p.dive || 0, da = p.diveArm || 0;
-    // direcoes no espaco do MODELO (X+ = esquerda do personagem, Y+ = cabeca, Z+ = frente), convertidas para o mundo
+    // queda livre: rotacoes simples nos eixos do MODELO (X = esquerda-direita, Z = frente). Sem IK, sem "menor arco": nada gira torto.
     if (dk > 0.01) {
-      this._add('Head', AX, -0.8 * dk);                    // cabeca erguida olhando para frente
       this._add('Spine2', AX, -0.18 * dk);                 // peito levemente arqueado
+      this._add('Head', AX, -0.8 * dk);                    // cabeca erguida olhando para frente
       for (const sd of ['Left', 'Right']) {
-        const sx = sd === 'Left' ? 1 : -1;
-        this._diveAim(sd + 'UpLeg', sd + 'Leg', sx * 0.12, -0.93, -0.35, dk);    // coxas levemente para tras
-        this._diveAim(sd + 'Leg', sd + 'Foot', sx * 0.08, -0.35, -0.93, dk);      // canelas dobradas para cima (costas)
+        this._add(sd + 'UpLeg', AX, 0.45 * dk);            // coxas para tras
+        this._add(sd + 'Leg', AX, 1.6 * dk);               // joelhos dobrados: canelas para cima
+        this._add(sd + 'Foot', AX, 0.35 * dk);
       }
     }
     if (da > 0.01) {
       for (const sd of ['Left', 'Right']) {
-        const sx = sd === 'Left' ? 1 : -1;
-        this._diveAim(sd + 'Arm', sd + 'ForeArm', sx * 0.26, 0.95, 0.10, da);    // bracos para cima, um pouco abertos
-        this._diveAim(sd + 'ForeArm', sd + 'Hand', sx * 0.12, 0.96, 0.22, da);   // maos juntas as linhas
+        this._add(sd + 'Arm', AX, -2.85 * da);             // braco inteiro para cima (e um pouco para frente)
+        this._add(sd + 'Arm', AZ, (sd === 'Right' ? 0.30 : -0.30) * da);   // levemente aberto
+        this._add(sd + 'ForeArm', AX, -0.45 * da);         // cotovelo um pouco dobrado: maos nas linhas
       }
     }
 

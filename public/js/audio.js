@@ -94,13 +94,13 @@ export class GameAudio {
 
   /** helice do helicoptero em loop; chamar todo quadro com o volume (0 = para) */
   rotor(vol) {
-    if (!this.ctx) return;
+    if (!this.ctx) return false;
     const buf = this.samples.rotor && this.samples.rotor[0];
     if (vol <= 0.003) {
       if (this._rot) { const r = this._rot; this._rot = null; try { r.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05); r.src.stop(this.ctx.currentTime + 0.3); } catch (e) { /* ok */ } }
-      return;
+      return true;
     }
-    if (!buf) return;
+    if (!buf) return false;
     if (!this._rot) {
       const src = this.ctx.createBufferSource(); src.buffer = buf; src.loop = true;
       const g = this.ctx.createGain(); g.gain.value = 0;
@@ -108,6 +108,7 @@ export class GameAudio {
       this._rot = { src, g };
     }
     this._rot.g.gain.setTargetAtTime(vol, this.ctx.currentTime, 0.12);
+    return true;
   }
 
   setMuted(m) {

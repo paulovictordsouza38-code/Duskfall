@@ -321,19 +321,30 @@ export class SoldadoSkin {
     const dk = p.dive || 0, da = p.diveArm || 0;
     // queda livre: rotacoes simples nos eixos do MODELO (X = esquerda-direita, Z = frente). Sem IK, sem "menor arco": nada gira torto.
     if (dk > 0.01) {
-      this._add('Spine2', AX, -0.18 * dk);                 // peito levemente arqueado
-      this._add('Head', AX, -0.8 * dk);                    // cabeca erguida olhando para frente
+      this._add('Spine2', AX, -0.15 * dk);                 // peito levemente arqueado
+      this._add('Head', AX, -0.6 * dk);                    // cabeca erguida
       for (const sd of ['Left', 'Right']) {
-        this._add(sd + 'UpLeg', AX, 0.45 * dk);            // coxas para tras
-        this._add(sd + 'Leg', AX, 1.6 * dk);               // joelhos dobrados: canelas para cima
-        this._add(sd + 'Foot', AX, 0.35 * dk);
+        const sx = sd === 'Left' ? 1 : -1;
+        this._add(sd + 'UpLeg', AX, 0.25 * dk);            // coxas um pouco para tras
+        this._add(sd + 'UpLeg', AZ, sx * 0.38 * dk);       // pernas abertas em V
+        this._add(sd + 'Leg', AX, 0.75 * dk);              // joelhos dobrados, pes para cima
+        this._add(sd + 'Foot', AX, 0.3 * dk);
       }
     }
-    if (da > 0.01) {
+    const spr = p.diveSpread || 0;
+    if (spr > 0.01) {                                      // bracos abertos para os lados (como na referencia)
       for (const sd of ['Left', 'Right']) {
-        this._add(sd + 'Arm', AX, -2.85 * da);             // braco inteiro para cima (e um pouco para frente)
-        this._add(sd + 'Arm', AZ, (sd === 'Right' ? 0.30 : -0.30) * da);   // levemente aberto
-        this._add(sd + 'ForeArm', AX, -0.45 * da);         // cotovelo um pouco dobrado: maos nas linhas
+        const sx = sd === 'Left' ? 1 : -1;
+        this._add(sd + 'Arm', AZ, sx * 1.45 * spr);
+        this._add(sd + 'Arm', AX, -0.25 * spr);             // um pouco para frente
+        this._add(sd + 'ForeArm', AX, -0.2 * spr);
+      }
+    }
+    if (da > 0.01) {                                      // com o parapente: bracos para cima segurando as linhas
+      for (const sd of ['Left', 'Right']) {
+        this._add(sd + 'Arm', AX, -2.85 * da);
+        this._add(sd + 'Arm', AZ, (sd === 'Right' ? 0.30 : -0.30) * da);
+        this._add(sd + 'ForeArm', AX, -0.45 * da);
       }
     }
 

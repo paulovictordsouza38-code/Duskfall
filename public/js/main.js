@@ -686,7 +686,7 @@ const state = {
 let prevWeaponIndex = -1;
 
 // ------------------------------------------------------------------ queda de helicoptero (inicio da partida)
-const drop = { phase: null, ht: 0, d: null, tilt: 0, arms: 0 };
+const drop = { phase: null, ht: 0, d: null, tilt: 0, arms: 0, spread: 0 };
 const EXIT = { x: HELI_SCALE * 0.28, y: -HELI_SCALE * 0.15 };   // por onde o personagem sai: ao lado do casco, na altura da porta      // phase: 'heli' | 'fall' | 'chute' | null
 const heli = createHeli(scene, renderer, camera);
 const playerChute = createChute(); scene.add(playerChute);
@@ -713,7 +713,7 @@ function endDrop(hideHeli = true) {
   drop.phase = null; drop.d = null;
   scene.fog.near = FOG0.near; scene.fog.far = FOG0.far;
   character.root.visible = true; playerChute.visible = false;
-  if (hideHeli) { heli.show(false); audio.rotor(0); }
+  if (hideHeli) { heli.show(false); audio.rotor(0); drop.rvOk = false; drop.rv = 0; }
   showDropBtn();
   if (camera.fov !== TP_FOV) { camera.fov = TP_FOV; camera.updateProjectionMatrix(); }
 }
@@ -726,7 +726,8 @@ function dropAction() {
     drop.d.vx = 3;                                      // sai pela porta, para fora do casco
     player.x = drop.d.x; player.y = drop.d.y; player.z = drop.d.z;
     character.root.visible = true;
-    view.pitch = -0.2;
+    view.pitch = -1.05;                                 // camera por cima, olhando para baixo
+    drop.tilt = 1.3; drop.spread = 1;                   // ja sai na posicao de queda livre
     audio.jump();
   } else if (drop.phase === 'fall') {
     if (openChute(drop.d, false)) { drop.phase = 'chute'; audio.pickup(); }
@@ -1043,7 +1044,7 @@ function setPaused(p) {
   showScreen(p && state.started ? 'pause' : null);
   if (p) { input.releaseAll(); input.exitLock(); } else { input.requestLock(); }
   input.enabled = !p;
-  if (p) audio.rotor(0);
+  if (p) { audio.rotor(0); drop.rvOk = false; drop.rv = 0; }
 }
 
 // ---- tela cheia (so joga em tela cheia, quando o aparelho permite)
@@ -1884,7 +1885,7 @@ function update(dt) {
     aimYaw: diving ? player.hipsYaw : wrapAngle(player.hipsYaw + wrapAngle(view.yaw - player.hipsYaw) * state.alignK), aimPitch: diving ? 0 : aimPitch * state.alignK,
     crouch: diving ? 0 : state.crouchK * (1 - state.proneK), air: dropOn ? 0 : state.airK,
     aimBlend: state.aimBlend, rig: state.armed && !state.gelMode && drop.phase !== 'fall' && drop.phase !== 'chute' ? rig : null,
-    dive: drop.tilt / 1.45, diveArm: drop.arms,
+    dive: drop.tilt / 1.45, diveArm: drop.arms, diveSpread: drop.spread,
     draw: w.cfg.drawTime > 0 ? 1 - w.drawT / w.cfg.drawTime : 1,
     reload: w.reloading ? w.reloadProgress : -1,
     recoil: state.recoilVis, slide: slideShown, wallPull: state.wallPull,
@@ -1893,7 +1894,8 @@ function update(dt) {
   character.proneK = state.proneK;
   character.root.rotation.order = 'YXZ';
   drop.tilt += ((drop.phase === 'fall' ? 1.45 : 0) - drop.tilt) * Math.min(1, 4 * dt);   // queda livre: de barriga para baixo
-  drop.arms += ((drop.phase === 'fall' || drop.phase === 'chute' ? 1 : 0) - drop.arms) * Math.min(1, 5 * dt);
+  drop.arms += ((drop.phase === 'chute' ? 1 : 0) - drop.arms) * Math.min(1, 5 * dt);
+  drop.spread += ((drop.phase === 'fall' ? 1 : 0) - drop.spread) * Math.min(1, 6 * dt);
   character.dive(drop.tilt / 1.45, drop.arms);
   character.root.rotation.x = -1.45 * state.proneK - drop.tilt;
   if (drop.tilt > 0.01) {                          // gira em volta do meio do corpo (nao dos pes) para ficar sob a camera
@@ -1940,8 +1942,12 @@ function update(dt) {
   world.update(dt, state.time);
   fx.update(dt);
   heli.update(dt);
-  { let rv = 0; if (heli.root.visible && !state.paused) { rv = 0.85 * Math.exp(-Math.max(0, camera.position.distanceTo(heli.root.position) - 20) / 45); } if (Math.abs(rv - (drop.rv || 0)) > 0.02 || (rv === 0 && drop.rv)) { drop.rv = rv; audio.rotor(rv); } }
-  if (heli.root.visible) { const hp = heliAt(drop.ht); heli.set(hp.x, hp.y, hp.z); if (hp.end && !dropOn) heli.show(false); }
+  {
+    let rv = 0;
+    if (heli.root.visible && !state.paused) rv = 0.3 + 0.5 * Math.exp(-Math.max(0, camera.position.distanceTo(heli.root.position) - 20) / 150);   // toca sempre; so fica um pouco mais baixo longe
+    if (Math.abs(rv - (drop.rv || 0)) > 0.02 || (rv === 0 && drop.rv) || (rv > 0 && !drop.rvOk)) { drop.rvOk = audio.rotor(rv) && rv > 0; drop.rv = rv; }
+  }
+  if (heli.root.visible) { const hp = heliAt(drop.ht); heli.set(hp.x, hp.y, hp.z); if (hp.z < DROP.HELI_Z1 - 600 && !dropOn) heli.show(false); }
 
   // ---- HUD
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) hud.toast.classList.remove('show'); }
@@ -1974,7 +1980,7 @@ function updateCamera(dt, pitch) {
   const off = (side === Infinity ? 0.42 : clamp(side - 0.12, 0, 0.42)) * state.alignK;
   const pivot = _v2.copy(base).addScaledVector(_rgt, off);
   // posicao desejada atras do jogador
-  const wantDist = drop.phase === 'fall' ? 4.4 : drop.phase === 'chute' ? 5.6 : 2.5;
+  const wantDist = drop.phase === 'fall' ? 4.6 : drop.phase === 'chute' ? 5.6 : 2.5;
   const back = _v3.copy(_fwd).multiplyScalar(-1);
   back.y += 0.12;
   back.normalize();
@@ -1997,7 +2003,7 @@ function updateCamera(dt, pitch) {
   camera.position.lerpVectors(tp, _eye, s);
   camera.rotation.set(pitch, yaw, 0, 'YXZ');
   if (shakeT > 0) { shakeT -= dt; const k = shakeT * 0.09; camera.position.x += (Math.random() - 0.5) * k; camera.position.y += (Math.random() - 0.5) * k; }
-  const fov = (drop.phase === 'fall' || drop.phase === 'chute' ? 80 : drop.phase ? 64 : TP_FOV) + (adsFov(state.gelMode ? 1 : loadout.zoom) - TP_FOV) * s;
+  const fov = (drop.phase === 'fall' ? 70 : drop.phase === 'chute' ? 80 : drop.phase ? 64 : TP_FOV) + (adsFov(state.gelMode ? 1 : loadout.zoom) - TP_FOV) * s;
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
 }
 
@@ -2142,7 +2148,7 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v26';
+    if (el) el.textContent = fps + ' fps · v27';
     if (state.started && !state.paused && !drop.phase) {
       adaptT += 1;
       const prev = resScale;

@@ -52,5 +52,5 @@ export function stepDrop(d, dt, gY, mx, mz, openAt = DROP.OPEN_H) {
 /** posicao do helicoptero t segundos apos o inicio */
 export function heliAt(t) {
   const z = DROP.HELI_Z0 - DROP.HELI_SPEED * t;
-  return { x: 0, y: DROP.ALT, z: Math.max(DROP.HELI_Z1, z), end: z <= DROP.HELI_Z1 };
+  return { x: 0, y: DROP.ALT, z, end: z <= DROP.HELI_Z1 };   // depois do fim do mapa ele segue em frente
 }

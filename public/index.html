@@ -180,6 +180,7 @@
   .lobbyChar { position:fixed; right:calc(28px + env(safe-area-inset-right)); bottom:calc(18px + env(safe-area-inset-bottom)); font-size:14px; letter-spacing:.2em; color:var(--dim); }
   .charTile { display:flex; flex-direction:column; gap:4px; border:1px solid var(--line); border-left:3px solid var(--acc); padding:14px 18px; margin:0 auto 18px; max-width:320px; text-align:left; }
   .charTile b { font-size:20px; } .charTile span { color:var(--acc); font-size:14px; }
+  .charTile { cursor:pointer; opacity:.7; } .charTile.on { opacity:1; border-color:var(--acc); }
   body.lobbyMode .layer, body.lobbyMode .topbtns, body.lobbyMode #touchUI { display:none; }
   body.lobbyMode.editing .layer, body.lobbyMode.editing #touchUI, body.lobbyMode.editing .topbtns { display:block; }
   body.lobbyMode.editing .topbtns { display:flex; }
@@ -320,7 +321,7 @@
 <div class="screen lobby" id="lobby">
   <div class="lobbyBox">
     <h1>DUSK<span>FALL</span></h1>
-    <div class="lobbyUser">Jogador: <b id="userName">—</b> <button class="btn small" id="btnRename" type="button">Trocar nome</button></div>
+    <div class="lobbyUser">Jogador: <b id="userName">—</b> <button class="btn small" id="btnRename" type="button">Sair da conta</button></div>
     <div class="lobbyMenu">
       <button class="btn main big" id="btnPlay" type="button">Jogar solo</button>
       <button class="btn" id="btnDuo" type="button">Duo (com amigo)</button>
@@ -335,11 +336,12 @@
 
 <div class="screen" id="account">
   <div class="card">
-    <h1>Criar conta</h1>
-    <p class="sub">Só o seu nome. Sem senha. Ele fica salvo neste aparelho.</p>
-    <input id="accName" class="field" maxlength="16" placeholder="Seu nome" autocomplete="off">
+    <h1>Sua conta</h1>
+    <p class="sub">Nome e senha. Fica salva no servidor: você entra direto nas próximas vezes e em qualquer aparelho.</p>
+    <input id="accName" class="field" maxlength="16" placeholder="Seu nome (3 a 16 letras)" autocomplete="username">
+    <input id="accPass" class="field" type="password" maxlength="64" placeholder="Senha (mínimo 4)" autocomplete="current-password" style="margin-top:10px">
     <p class="sub" id="accErr" style="color:#ff6a58"></p>
-    <div class="actions"><button class="btn main" id="btnAccOk" type="button">Entrar</button><button class="btn" id="btnAccCancel" type="button" hidden>Cancelar</button></div>
+    <div class="actions"><button class="btn main" id="btnAccOk" type="button">Entrar</button><button class="btn" id="btnAccNew" type="button">Criar conta</button><button class="btn" id="btnAccCancel" type="button" hidden>Cancelar</button></div>
   </div>
 </div>
 
@@ -392,7 +394,7 @@
 <div class="screen" id="chars">
   <div class="card">
     <h1>Personagem</h1>
-    <div class="charTile on"><b>OPERADOR TÁTICO</b><span>Selecionado</span></div>
+    <div id="charList"></div>
     <div class="actions"><button class="btn main" id="btnCharsBack" type="button">Voltar</button></div>
   </div>
 </div>

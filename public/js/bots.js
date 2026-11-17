@@ -33,7 +33,7 @@ export class BotManager {
     if (this._built) return;
     this._built = true;
     for (let i = 0; i < this.o.count; i++) {
-      const a = new Actor({ makeRig: this.o.makeRig, shadows: false });
+      const a = new Actor({ makeRig: this.o.makeRig, shadows: false, kind: i % 2 });
       a.setRole('enemy', BOT_NAMES[i % BOT_NAMES.length]);
       a.id = 'bot' + i;
       this.root.add(a.root);

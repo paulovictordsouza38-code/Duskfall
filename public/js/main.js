@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { createTextureLib } from './textures.js';
 import { buildWorld, buildEnvironment, ROOM, SPAWN } from './world.js';
 import { Character, wrapAngle } from './character.js';
-import { SoldadoSkin } from './soldado.js';
+import { SoldadoSkin, DIVE, SKIN_NAMES } from './soldado.js';
 import { createUSP, createMP40 } from './weapons3d.js';
 import { GUN_BUILDERS } from './guns.js';
 import { createPickups } from './pickups.js';
@@ -196,11 +196,24 @@ function resize() {
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 200));
 
+// ---- dados salvos no aparelho: localStorage + cookie de 10 anos (se um sumir, o outro restaura) -> o jogo entra direto, sem pedir o nome de novo
+function pget(k, d) {
+  try { const v = localStorage.getItem(k); if (v !== null) return v; } catch (e) { /* sem storage */ }
+  try { const m = document.cookie.match(new RegExp('(?:^|; )df_' + k + '=([^;]*)')); if (m) { const v = decodeURIComponent(m[1]); try { localStorage.setItem(k, v); } catch (e) { /* ok */ } return v; } } catch (e) { /* sem cookie */ }
+  return d;
+}
+function pset(k, v) {
+  try { localStorage.setItem(k, v); } catch (e) { /* sem storage */ }
+  if (/^duskfall_/.test(k)) { try { document.cookie = 'df_' + k + '=' + encodeURIComponent(v) + '; max-age=315360000; path=/; SameSite=Lax'; } catch (e) { /* sem cookie */ } }
+}
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ok */ }
+let skinSel = pget('duskfall_skin', '0') === '1' ? 1 : 0;
+
 // ------------------------------------------------------------------ personagem e armas
 const character = new Character(lib);
 scene.add(character.root);
 try {
-  if (typeof Image !== 'undefined' && !/[?&]procedural/.test(location.search)) character.attachSkin(new SoldadoSkin());
+  if (typeof Image !== 'undefined' && !/[?&]procedural/.test(location.search)) character.attachSkin(new SoldadoSkin(skinSel));
 } catch (err) { console.warn('Operador com esqueleto indisponivel, usando o procedural:', err); }
 const rigs = {};
 for (const id of WEAPON_IDS) rigs[id] = id === 'usp' ? createUSP(lib) : id === 'mp40' ? createMP40(lib) : GUN_BUILDERS[id](lib);
@@ -686,7 +699,7 @@ const state = {
 let prevWeaponIndex = -1;
 
 // ------------------------------------------------------------------ queda de helicoptero (inicio da partida)
-const drop = { phase: null, ht: 0, d: null, tilt: 0, arms: 0, spread: 0 };
+const drop = { phase: null, ht: 0, d: null, tilt: 0, arms: 0 };
 const EXIT = { x: HELI_SCALE * 0.28, y: -HELI_SCALE * 0.15 };   // por onde o personagem sai: ao lado do casco, na altura da porta      // phase: 'heli' | 'fall' | 'chute' | null
 const heli = createHeli(scene, renderer, camera);
 const playerChute = createChute(); scene.add(playerChute);
@@ -726,8 +739,8 @@ function dropAction() {
     drop.d.vx = 3;                                      // sai pela porta, para fora do casco
     player.x = drop.d.x; player.y = drop.d.y; player.z = drop.d.z;
     character.root.visible = true;
-    view.pitch = -1.05;                                 // camera por cima, olhando para baixo
-    drop.tilt = 1.3; drop.spread = 1;                   // ja sai na posicao de queda livre
+    view.pitch = DIVE.camPitch;                         // camera por cima, olhando para baixo
+    drop.tilt = DIVE.tilt;                   // ja sai na posicao de queda livre
     audio.jump();
   } else if (drop.phase === 'fall') {
     if (openChute(drop.d, false)) { drop.phase = 'chute'; audio.pickup(); }
@@ -1026,10 +1039,7 @@ function restart() {
   updateHud();
 }
 
-const store = {
-  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
-  set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* sem storage */ } },
-};
+const store = { get: pget, set: pset };
 const SCREENS = ['lobby', 'friends', 'chars', 'settings', 'pause', 'account', 'pack', 'results'];
 function showScreen(id) {
   for (const n of SCREENS) $(n).classList.toggle('show', n === id);
@@ -1160,25 +1170,56 @@ const net = new Net();
 let friendsMode = 'duo';
 let userName = store.get('duskfall_name', '') || store.get('sala_name', '');
 function showUser() { $('userName').textContent = userName || '—'; }
-let accFromLobby = false;
-function openAccount(cancelable) {
+let authed = false;                       // conta confirmada pelo servidor nesta conexao
+let guest = false;                        // sem servidor: so o nome, jogo contra o computador
+function setBusy(b, msg) { $('btnAccOk').disabled = b; $('btnAccNew').disabled = b; if (msg !== undefined) $('accErr').textContent = msg; }
+function openAccount(cancelable, msg) {
   $('accName').value = userName;
-  $('accErr').textContent = '';
+  $('accPass').value = '';
+  $('accErr').textContent = msg || '';
   $('btnAccCancel').hidden = !cancelable;
+  setBusy(false);
   showScreen('account');
 }
-$('btnAccOk').addEventListener('click', () => {
+async function accountSubmit(kind) {
   const n = $('accName').value.trim().replace(/\s+/g, ' ');
-  if (n.length < 2) { $('accErr').textContent = 'Use pelo menos 2 letras'; return; }
-  userName = n.slice(0, 16);
-  store.set('duskfall_name', userName);
-  showUser();
-  showScreen('lobby');
-  if (net.state().connected) net.send({ t: 'login', name: userName }); else ensureNet();
-});
-$('accName').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btnAccOk').click(); });
+  const pw = $('accPass').value;
+  if (n.length < 3) { $('accErr').textContent = 'Nome: pelo menos 3 letras'; return; }
+  setBusy(true, 'Conectando ao servidor…');
+  const up = await ensureNet();
+  if (!up) {                                              // sem servidor: modo local (so contra o computador)
+    guest = true; userName = n.slice(0, 16); store.set('duskfall_name', userName);
+    showUser(); showScreen('lobby'); return;
+  }
+  if (pw.length < 4) { setBusy(false, 'Senha: pelo menos 4 caracteres'); return; }
+  setBusy(true, kind === 'new' ? 'Criando conta…' : 'Entrando…');
+  net.send(kind === 'new' ? { t: 'register', name: n, pass: pw, skin: skinSel } : { t: 'auth', name: n, pass: pw });
+}
+$('btnAccOk').addEventListener('click', () => accountSubmit('login'));
+$('btnAccNew').addEventListener('click', () => accountSubmit('new'));
+$('accName').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('accPass').focus(); });
+$('accPass').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btnAccOk').click(); });
 $('btnAccCancel').addEventListener('click', () => showScreen('lobby'));
-$('btnRename').addEventListener('click', () => openAccount(true));
+$('btnRename').addEventListener('click', () => {
+  if (net.state().connected && authed) net.send({ t: 'logout', token: store.get('duskfall_token', '') });
+  authed = false; guest = false;
+  store.set('duskfall_token', ''); store.set('duskfall_name', ''); userName = '';
+  showUser(); openAccount(false);
+});
+function onAuthOk(m) {
+  authed = true; guest = false;
+  userName = m.name; store.set('duskfall_name', userName); store.set('duskfall_token', m.token);
+  if ((m.skin | 0) !== skinSel) { skinSel = m.skin | 0; store.set('duskfall_skin', String(skinSel)); try { character.attachSkin(new SoldadoSkin(skinSel)); character.skin.setShadows(renderer.shadowMap.enabled); } catch (err) { console.warn(err); } renderChars(); }
+  if (Array.isArray(m.friends) && m.friends.length) { friends = m.friends.slice(); store.set('duskfall_friends', JSON.stringify(friends)); }
+  else if (friends.length) net.send({ t: 'prefs', friends });          // 1a vez: sobe os amigos que ja estavam neste aparelho
+  showUser(); renderFriends();
+  if ($('account').classList.contains('show')) showScreen('lobby');
+}
+function onAuthErr(m) {
+  authed = false;
+  if (m.resume) { store.set('duskfall_token', ''); openAccount(false, 'Entre de novo na sua conta'); return; }
+  if ($('account').classList.contains('show')) setBusy(false, m.msg || 'Não foi possível entrar'); else openAccount(false, m.msg);
+}
 showUser();
 function frStatus(t) { $('frStatus').textContent = t || ''; }
 function frRender(st) {
@@ -1199,7 +1240,7 @@ function frRender(st) {
   $('btnFrStart').hidden = !st.host;
 }
 net.on.room = frRender;
-net.on.error = (m) => frStatus(m);
+net.on.error = (m) => { if (/conta primeiro/i.test(m)) { authed = false; openAccount(false, 'Entre na sua conta para jogar online'); return; } frStatus(m); };
 net.on.status = (t) => { if (t === 'Desconectado') { frStatus('Desconectado do servidor'); setTimeout(() => { if (userName && !document.hidden) ensureNet(); }, 4000); } renderFriends(); };
 net.on.start = () => { frStatus('Entrando na partida…'); };
 online.o.net = net;
@@ -1232,7 +1273,9 @@ function ensureNet() {
     try {
       if (!(await serverAvailable())) return false;
       await net.connect(wsUrl());
-      net.send({ t: 'login', name: userName || 'Jogador' });
+      authed = false;
+      const tk = store.get('duskfall_token', '');
+      if (tk && userName) net.send({ t: 'resume', name: userName, token: tk });
       return true;
     } catch (e) { return false; } finally { connecting = null; }
   })();
@@ -1244,7 +1287,7 @@ let onlineList = [];
 let pendingReq = [];
 let pendingInv = [];
 let foundList = [];
-function saveFriends() { store.set('duskfall_friends', JSON.stringify(friends)); }
+function saveFriends() { store.set('duskfall_friends', JSON.stringify(friends)); if (net.state().connected && authed) net.send({ t: 'prefs', friends }); }
 function isFriend(n) { return friends.some((f) => f.toLowerCase() === n.toLowerCase()); }
 function mkRow(name, info, buttons) {
   const r = document.createElement('div'); r.className = 'prow';
@@ -1288,6 +1331,8 @@ function setMode(mm) { friendsMode = mm; $('btnModeDuo').classList.toggle('on', 
 $('btnModeDuo').addEventListener('click', () => setMode('duo'));
 $('btnModeSquad').addEventListener('click', () => setMode('squad'));
 net.on.msg = (m) => {
+  if (m.t === 'authok') { onAuthOk(m); return; }
+  if (m.t === 'autherr') { onAuthErr(m); return; }
   if (m.t === 'match') {
     if (m.mode !== 'solo') startGame(m.mode);          // grupo: o anfitriao iniciou, todos entram
     else if (!state.started || match.mode !== 'solo') { net.send({ t: 'unmatch' }); return; }
@@ -1389,6 +1434,27 @@ $('btnSettings').addEventListener('click', openSettings);
 $('btnSettings2').addEventListener('click', openSettings);
 $('btnSettingsBack').addEventListener('click', () => showScreen(settingsFrom === 'pause' && state.started ? 'pause' : 'lobby'));
 $('btnChars').addEventListener('click', () => showScreen('chars'));
+function renderChars() {
+  const L = $('charList');
+  L.textContent = '';
+  SKIN_NAMES.forEach((nm, i) => {
+    const d = document.createElement('div');
+    d.className = 'charTile' + (i === skinSel ? ' on' : '');
+    d.innerHTML = '<b></b><span></span>';
+    d.firstChild.textContent = nm;
+    d.lastChild.textContent = i === skinSel ? 'Selecionado' : 'Toque para escolher';
+    d.addEventListener('click', () => {
+      if (i === skinSel) return;
+      skinSel = i;
+      store.set('duskfall_skin', String(i));
+      try { character.attachSkin(new SoldadoSkin(i)); character.skin.setShadows(renderer.shadowMap.enabled); } catch (err) { console.warn(err); }
+      if (net.state().connected && authed) net.send({ t: 'prefs', skin: skinSel });
+      renderChars();
+    });
+    L.appendChild(d);
+  });
+}
+renderChars();
 $('btnCharsBack').addEventListener('click', () => showScreen('lobby'));
 $('btnLobby').addEventListener('click', toLobby);
 
@@ -1885,7 +1951,7 @@ function update(dt) {
     aimYaw: diving ? player.hipsYaw : wrapAngle(player.hipsYaw + wrapAngle(view.yaw - player.hipsYaw) * state.alignK), aimPitch: diving ? 0 : aimPitch * state.alignK,
     crouch: diving ? 0 : state.crouchK * (1 - state.proneK), air: dropOn ? 0 : state.airK,
     aimBlend: state.aimBlend, rig: state.armed && !state.gelMode && drop.phase !== 'fall' && drop.phase !== 'chute' ? rig : null,
-    dive: drop.tilt / 1.45, diveArm: drop.arms, diveSpread: drop.spread,
+    dive: drop.tilt / DIVE.tilt, diveArm: drop.arms,
     draw: w.cfg.drawTime > 0 ? 1 - w.drawT / w.cfg.drawTime : 1,
     reload: w.reloading ? w.reloadProgress : -1,
     recoil: state.recoilVis, slide: slideShown, wallPull: state.wallPull,
@@ -1893,15 +1959,13 @@ function update(dt) {
   // deitado (posicao de atirador de elite): o corpo deita para a frente
   character.proneK = state.proneK;
   character.root.rotation.order = 'YXZ';
-  drop.tilt += ((drop.phase === 'fall' ? 1.45 : 0) - drop.tilt) * Math.min(1, 4 * dt);   // queda livre: de barriga para baixo
+  drop.tilt += ((drop.phase === 'fall' ? DIVE.tilt : 0) - drop.tilt) * Math.min(1, 4 * dt);   // queda livre: de barriga para baixo
   drop.arms += ((drop.phase === 'chute' ? 1 : 0) - drop.arms) * Math.min(1, 5 * dt);
-  drop.spread += ((drop.phase === 'fall' ? 1 : 0) - drop.spread) * Math.min(1, 6 * dt);
-  character.dive(drop.tilt / 1.45, drop.arms);
   character.root.rotation.x = -1.45 * state.proneK - drop.tilt;
   if (drop.tilt > 0.01) {                          // gira em volta do meio do corpo (nao dos pes) para ficar sob a camera
     const sn = Math.sin(drop.tilt);
-    character.root.position.y += 0.9 * sn;
-    character.root.position.x += Math.sin(player.hipsYaw) * 0.85 * sn; character.root.position.z += Math.cos(player.hipsYaw) * 0.85 * sn;
+    character.root.position.y += DIVE.shiftY * sn;
+    character.root.position.x += Math.sin(player.hipsYaw) * DIVE.shiftBack * sn; character.root.position.z += Math.cos(player.hipsYaw) * DIVE.shiftBack * sn;
   }
   if (character.stepEvent !== state.lastStep) {
     state.lastStep = character.stepEvent;
@@ -1980,7 +2044,7 @@ function updateCamera(dt, pitch) {
   const off = (side === Infinity ? 0.42 : clamp(side - 0.12, 0, 0.42)) * state.alignK;
   const pivot = _v2.copy(base).addScaledVector(_rgt, off);
   // posicao desejada atras do jogador
-  const wantDist = drop.phase === 'fall' ? 4.6 : drop.phase === 'chute' ? 5.6 : 2.5;
+  const wantDist = drop.phase === 'fall' ? DIVE.camDist : drop.phase === 'chute' ? 5.6 : 2.5;
   const back = _v3.copy(_fwd).multiplyScalar(-1);
   back.y += 0.12;
   back.normalize();
@@ -2003,7 +2067,7 @@ function updateCamera(dt, pitch) {
   camera.position.lerpVectors(tp, _eye, s);
   camera.rotation.set(pitch, yaw, 0, 'YXZ');
   if (shakeT > 0) { shakeT -= dt; const k = shakeT * 0.09; camera.position.x += (Math.random() - 0.5) * k; camera.position.y += (Math.random() - 0.5) * k; }
-  const fov = (drop.phase === 'fall' ? 70 : drop.phase === 'chute' ? 80 : drop.phase ? 64 : TP_FOV) + (adsFov(state.gelMode ? 1 : loadout.zoom) - TP_FOV) * s;
+  const fov = (drop.phase === 'fall' ? DIVE.camFov : drop.phase === 'chute' ? 80 : drop.phase ? 64 : TP_FOV) + (adsFov(state.gelMode ? 1 : loadout.zoom) - TP_FOV) * s;
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
 }
 
@@ -2148,7 +2212,7 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v27';
+    if (el) el.textContent = fps + ' fps · v30';
     if (state.started && !state.paused && !drop.phase) {
       adaptT += 1;
       const prev = resScale;
@@ -2176,7 +2240,8 @@ function init() {
   updateHud();
   if (matchMedia('(pointer: coarse)').matches) { input.touch = true; document.body.classList.add('touch'); }
   $('loading').classList.add('hide');
-  if (!userName) openAccount(false); else { showScreen('lobby'); ensureNet(); }
+  if (store.get('duskfall_token', '') && userName) { showScreen('lobby'); ensureNet(); }      // sessao salva: entra direto
+  else { openAccount(false); ensureNet(); }
   requestAnimationFrame(frame);
 }
 

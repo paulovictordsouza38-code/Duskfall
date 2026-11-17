@@ -28,7 +28,7 @@ export class Online {
 
   add(p) {
     if (p.id === this.you || this.remotes.has(p.id)) return;
-    const a = new Actor({ makeRig: this.o.makeRig, shadows: false });
+    const a = new Actor({ makeRig: this.o.makeRig, shadows: false, kind: p.skin | 0 });
     a.setRole(p.team === this.team ? 'friend' : 'enemy', p.name);
     a.id = p.id; a.team = p.team; a.name = p.name;
     a.tgt = null;

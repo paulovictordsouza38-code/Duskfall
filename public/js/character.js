@@ -382,6 +382,7 @@ export class Character {
 
   /** Troca o corpo procedural pelo modelo com esqueleto (o procedural segue rodando por baixo, so invisivel). */
   attachSkin(skin) {
+    if (this.skin && this.skin.group.parent) this.skin.group.parent.remove(this.skin.group);
     this.root.traverse((o) => { if (o.isMesh) o.visible = false; });
     this.root.add(skin.group);
     this.skin = skin;

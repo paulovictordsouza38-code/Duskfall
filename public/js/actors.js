@@ -39,7 +39,7 @@ export class Actor {
     this.o = o;
     this.root = new THREE.Group();
     this.root.rotation.order = 'YXZ';
-    this.skin = new SoldadoSkin();
+    this.skin = new SoldadoSkin(o.kind || 0);
     this.skin.setShadows(!!o.shadows);
     this.root.add(this.skin.group);
     this.x = 0; this.y = 0; this.z = 0; this.yaw = 0; this.pitch = 0;

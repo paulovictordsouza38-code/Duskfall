@@ -3,9 +3,11 @@
 'use strict';
 const http = require('http');
 const crypto = require('crypto');
+const { openStore } = require('./db');
+const { createAuth } = require('./auth');
 
 const PORT = Number(process.env.PORT) || 8787;
-const VERSION = 'salas-3';
+const VERSION = 'salas-4';
 const fs = require('fs');
 const path = require('path');
 const PUBLIC = path.join(__dirname, 'public');
@@ -40,6 +42,8 @@ class Client {
     this.socket = socket;
     this.id = String(nextId++);
     this.name = 'Jogador';
+    this.acct = null;
+    this.ip = '';
     this.room = null;
     this.match = null;
     this.team = null;
@@ -141,7 +145,7 @@ function leaveRoom(c) {
 
 // ------------------------------------------------------------------ partidas (ate 40 jogadores, 10 min)
 let nextMatch = 1;
-function matchList(mt) { return [...mt.players.values()].map((p) => ({ id: p.id, name: p.name, team: p.team })); }
+function matchList(mt) { return [...mt.players.values()].map((p) => ({ id: p.id, name: p.name, team: p.team, skin: p.skin | 0 })); }
 function mbroadcast(mt, obj, exceptId = null) { for (const p of mt.players.values()) if (p.id !== exceptId) p.send(obj); }
 function joinMatch(mode, members, team) {
   let mt = null;
@@ -154,7 +158,7 @@ function joinMatch(mode, members, team) {
   const teams = new Set([...mt.players.values()].map((p) => p.team));
   for (const p of members) p.send({ t: 'match', id: mt.id, you: p.id, team, mode, left: mt.endsAt - Date.now(), players: matchList(mt), teams: teams.size });
   const others = [...mt.players.values()].filter((p) => !members.includes(p));
-  for (const p of others) p.send({ t: 'mjoin', players: members.map((q) => ({ id: q.id, name: q.name, team })), teams: teams.size });
+  for (const p of others) p.send({ t: 'mjoin', players: members.map((q) => ({ id: q.id, name: q.name, team, skin: q.skin | 0 })), teams: teams.size });
   return mt;
 }
 function leaveMatch(c) {
@@ -184,9 +188,33 @@ setInterval(() => {                                   // snapshots 10x por segun
   }
 }, 100).unref();
 
+// ------------------------------------------------------------------ contas (senha + banco)
+let auth = null, store = null;
+openStore().then((s) => { store = s; auth = createAuth(s); console.log('Contas guardadas em: ' + s.kind); }).catch((e) => console.error('Falha ao abrir o armazenamento de contas:', e));
+async function authMsg(c, m) {
+  if (!auth) { c.send({ t: 'autherr', msg: 'Servidor iniciando, tente de novo em alguns segundos' }); return; }
+  try {
+    let r;
+    if (m.t === 'register') r = await auth.register(c.ip, m);
+    else if (m.t === 'auth') r = await auth.login(c.ip, m);
+    else if (m.t === 'resume') r = await auth.resume(c.ip, m);
+    else if (m.t === 'logout') { if (c.acct) await auth.logout(c.acct, m.token); leaveMatch(c); if (c.room) leaveRoom(c); c.acct = null; c.name = 'Jogador'; return; }
+    else if (m.t === 'prefs') { if (c.acct) { await auth.prefs(c.acct, m); if (m.skin === 0 || m.skin === 1) c.skin = m.skin; } return; }
+    if (r.err) { c.send({ t: 'autherr', msg: r.err, resume: m.t === 'resume' }); return; }
+    c.acct = r.acc; c.name = r.acc.name; c.skin = r.acc.skin | 0;
+    c.send(Object.assign({ id: c.id, online: online.size }, r.reply));
+  } catch (e) { console.error('auth:', e); c.send({ t: 'autherr', msg: 'Erro no servidor' }); }
+}
+
 function handle(c, m) {
+  if (m.t === 'register' || m.t === 'auth' || m.t === 'resume' || m.t === 'logout' || m.t === 'prefs') {
+    const run = () => { const p = authMsg(c, m).finally(() => { if (c.busy === p) c.busy = null; }); c.busy = p; };
+    if (c.busy) c.busy.then(run); else run();
+    return;
+  }
+  if (c.busy) { c.busy.then(() => handle(c, m)); return; }   // espera o login terminar antes de tratar o resto
+  if (!c.acct && m.t !== 'ping') { c.send({ t: 'error', msg: 'Entre na conta primeiro' }); return; }
   switch (m.t) {
-    case 'login': c.name = cleanName(m.name); c.send({ t: 'login', id: c.id, name: c.name, online: online.size }); break;
     case 'search': {   // procura jogadores conectados pelo nome
       const q = String(m.q || '').trim().toLowerCase().slice(0, 16);
       if (q.length < 2) { c.send({ t: 'found', q, list: [] }); break; }
@@ -212,7 +240,7 @@ function handle(c, m) {
     case 'ping': c.send({ t: 'pong', ts: m.ts || 0 }); break;
     case 'create': {
       if (c.room) leaveRoom(c);
-      c.name = cleanName(m.name);
+      c.name = c.acct.name;
       const code = newCode();
       if (!code) { c.send({ t: 'error', msg: 'Servidor cheio, tente de novo' }); break; }
       const mode = PARTY_MAX[m.mode] ? m.mode : 'duo';
@@ -231,7 +259,7 @@ function handle(c, m) {
       const cap = PARTY_MAX[room.mode] || MAX_PLAYERS;
       if (room.players.size >= cap) { c.send({ t: 'error', msg: 'Sala cheia (' + cap + ' no ' + room.mode + ')' }); break; }
       if (c.room) leaveRoom(c);
-      c.name = cleanName(m.name);
+      c.name = c.acct.name;
       room.players.set(c.id, c);
       c.room = room;
       room.touched = Date.now();
@@ -251,7 +279,7 @@ function handle(c, m) {
       break;
     }
     case 'quick': {   // solo: entra direto numa partida (cada um e seu proprio time)
-      c.name = cleanName(m.name);
+      c.name = c.acct.name;
       leaveMatch(c);
       joinMatch('solo', [c], 'S' + c.id);
       break;
@@ -324,6 +352,7 @@ server.on('upgrade', (req, socket) => {
   if (!key || String(req.headers.upgrade || '').toLowerCase() !== 'websocket') { socket.destroy(); return; }
   socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + acceptKey(key) + '\r\n\r\n');
   const c = new Client(socket);
+  c.ip = String(req.headers['x-forwarded-for'] || socket.remoteAddress || '').split(',')[0].trim();
   c.send({ t: 'hello', version: VERSION, max: MAX_PLAYERS, matchMax: MATCH_MAX });
 });
 

@@ -1,8 +1,15 @@
 {
-  "name": "duskfall",
+  "name": "servidor-sala",
   "version": "1.0.0",
-  "description": "DUSKFALL - jogo e servidor online (sem dependencias)",
+  "description": "Servidor de salas e contas do DUSKFALL",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
-  "engines": { "node": ">=18" }
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "pg": "^8.11.0"
+  }
 }

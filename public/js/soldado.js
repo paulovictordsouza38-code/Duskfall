@@ -39,13 +39,15 @@ const AX = new THREE.Vector3(1, 0, 0);
 const AY = new THREE.Vector3(0, 1, 0);
 const AZ = new THREE.Vector3(0, 0, 1);
 const _QID = new THREE.Quaternion();
+const _tv = new THREE.Vector3(), _tw = new THREE.Vector3();
+const TORSO = { a: 0.27, b: 0.34, c: 0.2 };   // elipsoide do tronco (colete) + folga do braco, no referencial do peito
 const SINGLE = new Set(['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head']);
 
 /** Poses de queda. Ajustadas na pagina "laboratorio de pose"; a camera e a inclinacao do corpo tambem. */
 export const DIVE = {
-  tilt: 1.3, shiftY: 0.9, shiftBack: 0.85, camDist: 4.6, camPitch: -1.3, camFov: 70,
-  fall: { bind: ['Shoulder', 'Arm', 'ForeArm', 'Hand', 'UpLeg', 'Leg', 'Foot'], Spine2: [-0.15, 0, 0], Head: [-0.6, 0, 0], UpLeg: [0.25, 0, 0.38], Leg: [0.75, 0, 0], Foot: [0.3, 0, 0] },
-  chute: { bind: ['Shoulder', 'Arm', 'ForeArm', 'Hand'], Arm: [0, 0, 1.35] },
+  tilt: 1.3, shiftY: 0.9, shiftBack: 0.85, camDist: 3.0, camPitch: -1.3, camFov: 70,
+  fall: { bind: ['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head', 'Shoulder', 'Arm', 'ForeArm', 'Hand', 'UpLeg', 'Leg', 'Foot'], Spine2: [-0.15, 0, 0], Head: [-0.5, 0, 0], Arm: [-0.25, 0, 0.62], UpLeg: [-0.2, 0, 0.3], Leg: [0.9, 0, 0], Foot: [0.4, 0, 0] },
+  chute: { bind: ['Shoulder', 'Arm', 'ForeArm', 'Hand'], Arm: [0, 0, 2.0] },
 };
 
 function buildShared(S, SOLDADO_TEX) {
@@ -121,6 +123,11 @@ export class SoldadoSkin {
     const boneInverses = [];
     for (let i = 0; i < n; i++) boneInverses.push(new THREE.Matrix4().fromArray(inv, i * 16));
     this.skeleton = new THREE.Skeleton(this.bones, boneInverses);
+    // rotacao local de cada osso na pose de repouso do modelo (bracos ligeiramente abertos, pernas retas): igual dos dois lados
+    {
+      const rw = boneInverses.map((m) => new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().copy(m).invert()));
+      this.bindQ = rw.map((q, i) => { const p = S.skel.parent[i]; return p >= 0 ? rw[p].clone().invert().multiply(q) : q.clone(); });
+    }
     this._lite = false;
 
     // geometria/material/clipes sao compartilhados entre todas as instancias (jogador, bots, jogadores online)
@@ -268,9 +275,26 @@ export class SoldadoSkin {
     pole.addScaledVector(u, -pole.dot(u));
     if (pole.lengthSq() < 1e-6) pole.set(0, -1, 0);
     pole.normalize();
-    const E = S.clone().addScaledVector(u, L1 * cosA).addScaledVector(pole, L1 * sinA);
-    this._aim(up, fo, E.clone().sub(S).normalize());
+    // colisao com o proprio corpo: gira o cotovelo em volta do eixo ombro-mao ate o antebraco sair de dentro do tronco
     const Hn = S.clone().addScaledVector(u, dist);
+    const sp = this.byName.Spine1.getWorldPosition(_tv);
+    const C = sp.clone();
+    const iq = chestQ.clone().invert();
+    const pen = (P) => { _tw.copy(P).sub(C).applyQuaternion(iq); const d = Math.sqrt((_tw.x / TORSO.a) ** 2 + (_tw.y / TORSO.b) ** 2 + (_tw.z / TORSO.c) ** 2); return d < 1 ? 1 - d : 0; };
+    const cand = new THREE.Vector3(), mid = new THREE.Vector3(), mid2 = new THREE.Vector3();
+    let bestE = null, bestCost = 1e9;
+    const axis = u, p0 = pole;
+    const p90 = new THREE.Vector3().crossVectors(axis, p0);
+    for (let k = -8; k <= 8; k++) {
+      const th = k * 0.32;
+      const dv = p0.clone().multiplyScalar(Math.cos(th)).addScaledVector(p90, Math.sin(th));
+      const E1 = S.clone().addScaledVector(u, L1 * cosA).addScaledVector(dv, L1 * sinA);
+      mid.copy(E1).lerp(Hn, 0.4); mid2.copy(E1).lerp(Hn, 0.75);
+      const cost = (pen(E1) * 1.5 + pen(mid) * 2 + pen(mid2) * 2 + pen(Hn)) * 10 + Math.abs(th) * 0.03;
+      if (cost < bestCost) { bestCost = cost; bestE = E1; }
+    }
+    const E = bestE;
+    this._aim(up, fo, E.clone().sub(S).normalize());
     this._aim(fo, ha, Hn.sub(E).normalize());
   }
 
@@ -371,7 +395,7 @@ export class SoldadoSkin {
   _applyPose(pose, k) {
     // "bind": ossos que voltam para a pose de repouso do modelo (bracos abertos, pernas retas), igual dos dois lados; depois vem o ajuste
     if (pose.bind && pose.bind.length) {
-      for (const nm of pose.bind) for (const full of (SINGLE.has(nm) ? [nm] : ['Left' + nm, 'Right' + nm])) { const b = this.byName[full]; if (b) { b.quaternion.slerp(_QID, k); b.updateMatrixWorld(true); } }
+      for (const nm of pose.bind) for (const full of (SINGLE.has(nm) ? [nm] : ['Left' + nm, 'Right' + nm])) { const b = this.byName[full]; if (b) { b.quaternion.slerp(this.bindQ[this.I(full)], k); b.updateMatrixWorld(true); } }
       this.holder.updateMatrixWorld(true);
     }
     for (const name of Object.keys(pose)) {

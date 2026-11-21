@@ -714,7 +714,7 @@ function showDropBtn() {
   dropBtn.style.display = t ? 'block' : 'none'; dropBtn.textContent = t;
 }
 function beginDrop() {
-  drop.phase = 'heli'; drop.ht = 0; drop.d = null;
+  drop.phase = 'heli'; drop.ht = 0; drop.d = null; drop.jumped = false; drop.agl0 = 300;
   heli.show(true);
   view.yaw = Math.PI / 2; view.pitch = -0.18;      // camera externa olhando o lado da porta do helicoptero
   scene.fog.near = 380; scene.fog.far = 1300;
@@ -737,6 +737,7 @@ function dropAction() {
     const h0 = hpNow();
     drop.d = newDrop(h0.x + EXIT.x, h0.y + EXIT.y, h0.z);
     drop.d.vx = 3;                                      // sai pela porta, para fora do casco
+    drop.jumped = true; drop.agl0 = Math.max(50, drop.d.y - groundHeight(drop.d.x, drop.d.z, drop.d.y, world.colliders));   // o som do helicoptero comeca a baixar aqui
     player.x = drop.d.x; player.y = drop.d.y; player.z = drop.d.z;
     character.root.visible = true;
     view.pitch = DIVE.camPitch;                         // camera por cima, olhando para baixo
@@ -2008,7 +2009,11 @@ function update(dt) {
   heli.update(dt);
   {
     let rv = 0;
-    if (heli.root.visible && !state.paused) rv = 0.3 + 0.5 * Math.exp(-Math.max(0, camera.position.distanceTo(heli.root.position) - 20) / 150);   // toca sempre; so fica um pouco mais baixo longe
+    if (heli.root.visible && !state.paused) {
+      rv = 0.3 + 0.5 * Math.exp(-Math.max(0, camera.position.distanceTo(heli.root.position) - 20) / 150);   // toca sempre; so fica um pouco mais baixo longe
+      // depois do pulo o som cai de forma continua com a altura e ja esta em silencio ao tocar o chao
+      if (drop.jumped) { const agl = (drop.phase === 'fall' || drop.phase === 'chute') ? player.y - groundHeight(player.x, player.z, player.y, world.colliders) : 0; const f = Math.min(1, Math.max(0, agl / drop.agl0)); rv = f < 0.04 ? 0 : rv * f; }
+    }
     if (Math.abs(rv - (drop.rv || 0)) > 0.02 || (rv === 0 && drop.rv) || (rv > 0 && !drop.rvOk)) { drop.rvOk = audio.rotor(rv) && rv > 0; drop.rv = rv; }
   }
   if (heli.root.visible) { const hp = heliAt(drop.ht); heli.set(hp.x, hp.y, hp.z); if (hp.z < DROP.HELI_Z1 - 600 && !dropOn) heli.show(false); }
@@ -2052,8 +2057,8 @@ function updateCamera(dt, pitch) {
   const t = rayBoxes(pivot.x, pivot.y, pivot.z, back.x, back.y, back.z, wantDist + 0.3, world.colliders);
   let allowed = t === Infinity ? wantDist : Math.max(0.28, t - 0.28);
   // teto e piso
-  const inRoom = player.z > ROOM.minZ + 0.35 && Math.abs(player.x) < ROOM.maxX;
-  const ceilY = inRoom ? ROOM.h - 0.2 : 80;                  // fora da sala nao ha teto
+  const inRoom = !drop.phase && player.z > ROOM.minZ + 0.35 && Math.abs(player.x) < ROOM.maxX;   // no ar (queda/paraquedas) nao ha teto
+  const ceilY = inRoom ? ROOM.h - 0.2 : Math.max(80, player.y + 60);                  // fora da sala nao ha teto
   if (back.y > 0.001) allowed = Math.min(allowed, (ceilY - pivot.y) / back.y);
   if (back.y < -0.001) allowed = Math.min(allowed, (0.18 - pivot.y) / back.y);
   allowed = Math.max(0.28, allowed);
@@ -2212,7 +2217,7 @@ function frame(now) {
   if (fpsAcc > 1) {
     const fps = Math.round(fpsN / fpsAcc);
     const el = $('fps');
-    if (el) el.textContent = fps + ' fps · v30';
+    if (el) el.textContent = fps + ' fps · v31';
     if (state.started && !state.paused && !drop.phase) {
       adaptT += 1;
       const prev = resScale;
